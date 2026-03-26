@@ -1,21 +1,22 @@
 #![no_std]
+use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{
-    contract, contractimpl, contracttype, contracterror, panic_with_error,
-    symbol_short, Address, Bytes, BytesN, Env, String, Symbol,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address,
+    BytesN, Env, String, Symbol,
 };
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ContractError {
-    AssetNotFound       = 1,
+    AssetNotFound = 1,
     /// Same owner attempted to register an asset with identical metadata.
     /// Each physical asset should have unique metadata (serial number, model, etc.).
     /// If re-registration is intentional, use distinct metadata to distinguish assets.
-    DuplicateAsset      = 2,
+    DuplicateAsset = 2,
 }
 
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Asset {
     pub asset_id: u64,
     pub asset_type: Symbol,
@@ -47,16 +48,11 @@ pub struct AssetRegistry;
 
 #[contractimpl]
 impl AssetRegistry {
-    pub fn register_asset(
-        env: Env,
-        asset_type: Symbol,
-        metadata: String,
-        owner: Address,
-    ) -> u64 {
+    pub fn register_asset(env: Env, asset_type: Symbol, metadata: String, owner: Address) -> u64 {
         owner.require_auth();
 
         // Deduplication: reject if this owner already registered identical metadata.
-        let meta_bytes = Bytes::from(metadata.to_xdr(&env));
+        let meta_bytes = metadata.clone().to_xdr(&env);
         let meta_hash: BytesN<32> = env.crypto().sha256(&meta_bytes).into();
         let dk = dedup_key(&owner, &meta_hash);
         if env.storage().persistent().has(&dk) {
@@ -66,7 +62,7 @@ impl AssetRegistry {
         let id: u64 = env.storage().instance().get(&ASSET_COUNT).unwrap_or(0) + 1;
         let asset = Asset {
             asset_id: id,
-            asset_type,
+            asset_type: asset_type.clone(),
             metadata,
             owner: owner.clone(),
             registered_at: env.ledger().timestamp(),
@@ -74,13 +70,13 @@ impl AssetRegistry {
         env.storage().persistent().set(&asset_key(id), &asset);
         env.storage().instance().set(&ASSET_COUNT, &id);
         env.storage().persistent().set(&dk, &id);
-        
+
         // Emit asset registration event
         env.events().publish(
             (symbol_short!("REG_AST"), id),
-            (asset_type, owner.clone(), env.ledger().timestamp())
+            (asset_type, owner.clone(), env.ledger().timestamp()),
         );
-        
+
         id
     }
 
@@ -99,7 +95,11 @@ impl AssetRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{symbol_short, testutils::{Address as _, Events}, Env, String};
+    use soroban_sdk::{
+        symbol_short,
+        testutils::{Address as _, Events},
+        Env, String,
+    };
 
     #[test]
     fn test_register_and_get_asset() {
@@ -186,7 +186,7 @@ mod tests {
         let owner = Address::generate(&env);
         let asset_type = symbol_short!("GENSET");
         let metadata = String::from_str(&env, "Caterpillar 3516 Generator");
-        
+
         client.register_asset(&asset_type, &metadata, &owner);
 
         // Verify registration event was emitted
