@@ -28,6 +28,16 @@ fn score_key(asset_id: u64) -> (Symbol, u64) {
     (symbol_short!("SCORE"), asset_id)
 }
 
+fn registry_key() -> Symbol {
+    symbol_short!("REGISTRY")
+}
+
+fn max_history_key() -> Symbol {
+    symbol_short!("MAX_HIST")
+}
+
+const DEFAULT_MAX_HISTORY: u32 = 200;
+
 // Minimal client interface for cross-contract call to EngineerRegistry
 mod engineer_registry {
     use soroban_sdk::{contractclient, Address, Env};
@@ -42,6 +52,12 @@ pub struct Lifecycle;
 
 #[contractimpl]
 impl Lifecycle {
+    /// Must be called once after deployment to set the asset-registry contract address.
+    /// Optionally set a max_history cap (pass 0 to use the default of 200).
+    pub fn initialize(env: Env, asset_registry: Address, max_history: u32) {
+        env.storage().instance().set(&registry_key(), &asset_registry);
+        let cap = if max_history == 0 { DEFAULT_MAX_HISTORY } else { max_history };
+        env.storage().instance().set(&max_history_key(), &cap);
     /// Must be called once after deployment to bind the engineer registry.
     pub fn initialize(env: Env, engineer_registry: Address) {
         env.storage().instance().set(&ENG_REGISTRY, &engineer_registry);
@@ -56,6 +72,29 @@ impl Lifecycle {
     ) {
         engineer.require_auth();
 
+        // Validate asset exists in the registry (panics with "asset not found" if not)
+        let registry: Address = env
+            .storage()
+            .instance()
+            .get(&registry_key())
+            .expect("registry not set");
+        let registry_client = asset_registry::AssetRegistryClient::new(&env, &registry);
+        registry_client.get_asset(&asset_id);
+
+        let mut history: Vec<MaintenanceRecord> = env
+            .storage()
+            .persistent()
+            .get(&history_key(asset_id))
+            .unwrap_or(Vec::new(&env));
+
+        let cap: u32 = env
+            .storage()
+            .instance()
+            .get(&max_history_key())
+            .unwrap_or(DEFAULT_MAX_HISTORY);
+
+        if history.len() >= cap {
+            panic!("history cap reached");
         // Cross-check engineer credential
         let registry_id: Address = env.storage().instance().get(&ENG_REGISTRY)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::UnauthorizedEngineer));
@@ -72,11 +111,6 @@ impl Lifecycle {
             timestamp: env.ledger().timestamp(),
         };
 
-        let mut history: Vec<MaintenanceRecord> = env
-            .storage()
-            .persistent()
-            .get(&history_key(asset_id))
-            .unwrap_or(Vec::new(&env));
         history.push_back(record);
         env.storage().persistent().set(&history_key(asset_id), &history);
 
@@ -120,6 +154,8 @@ impl Lifecycle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use asset_registry::{AssetRegistry, AssetRegistryClient};
+    use soroban_sdk::{symbol_short, testutils::Address as _, Env, String};
     use soroban_sdk::{symbol_short, testutils::Address as _, BytesN, Env, String};
     use crate::engineer_registry::EngineerRegistryClient;
     use engineer_registry_contract::EngineerRegistry;
@@ -138,21 +174,36 @@ mod tests {
         (lifecycle, EngineerRegistryClient::new(env, &eng_reg_id))
     }
 
+    fn setup(env: &Env, max_history: u32) -> (LifecycleClient<'_>, AssetRegistryClient<'_>) {
     fn setup(env: &Env) -> (LifecycleClient<'_>, AssetRegistryClient<'_>) {
         let registry_id = env.register(AssetRegistry, ());
         let registry_client = AssetRegistryClient::new(env, &registry_id);
 
         let lifecycle_id = env.register(Lifecycle, ());
         let client = LifecycleClient::new(env, &lifecycle_id);
+        client.initialize(&registry_id, &max_history);
         client.initialize(&registry_id);
 
         (client, registry_client)
+    }
+
+    fn register_asset<'a>(env: &Env, registry_client: &AssetRegistryClient<'a>) -> u64 {
+        let owner = Address::generate(env);
+        registry_client.register_asset(
+            &symbol_short!("GENSET"),
+            &String::from_str(env, "Caterpillar 3516"),
+            &owner,
+        )
     }
 
     #[test]
     fn test_submit_and_score() {
         let env = Env::default();
         env.mock_all_auths();
+        let (client, registry_client) = setup(&env, 0);
+        let asset_id = register_asset(&env, &registry_client);
+
+        let engineer = Address::generate(&env);
         let (client, eng_client) = setup(&env);
 
         let engineer = Address::generate(&env);
@@ -180,6 +231,9 @@ mod tests {
     fn test_submit_maintenance_nonexistent_asset() {
         let env = Env::default();
         env.mock_all_auths();
+        let (client, _) = setup(&env, 0);
+
+        let engineer = Address::generate(&env);
         let (client, _) = setup(&env);
 
         let engineer = Address::generate(&env);
@@ -188,6 +242,34 @@ mod tests {
             &999u64,
             &symbol_short!("OIL_CHG"),
             &String::from_str(&env, "Should fail"),
+            &engineer,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "history cap reached")]
+    fn test_history_cap_enforced() {
+        let env = Env::default();
+        env.mock_all_auths();
+        // Set a small cap of 3 for this test
+        let (client, registry_client) = setup(&env, 3);
+        let asset_id = register_asset(&env, &registry_client);
+
+        let engineer = Address::generate(&env);
+        // Fill to cap
+        for _ in 0..3 {
+            client.submit_maintenance(
+                &asset_id,
+                &symbol_short!("OIL_CHG"),
+                &String::from_str(&env, "ok"),
+                &engineer,
+            );
+        }
+        // This 4th submission must panic
+        client.submit_maintenance(
+            &asset_id,
+            &symbol_short!("OIL_CHG"),
+            &String::from_str(&env, "over cap"),
             &engineer,
         );
     }

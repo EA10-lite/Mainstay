@@ -1009,6 +1009,14 @@
                     "storage": [
                       {
                         "key": {
+                          "symbol": "MAX_HIST"
+                        },
+                        "val": {
+                          "u32": 200
+                        }
+                      },
+                      {
+                        "key": {
                           "symbol": "REGISTRY"
                         },
                         "val": {
