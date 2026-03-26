@@ -72,8 +72,10 @@ impl AssetRegistry {
             registered_at: env.ledger().timestamp(),
         };
         env.storage().persistent().set(&asset_key(id), &asset);
+        env.storage().persistent().extend_ttl(&asset_key(id), 518400, 518400); // Extend TTL for persistent storage entries to prevent data loss
         env.storage().instance().set(&ASSET_COUNT, &id);
         env.storage().persistent().set(&dk, &id);
+        env.storage().persistent().extend_ttl(&dk, 518400, 518400); // Extend TTL for persistent storage entries to prevent data loss
         
         // Emit asset registration event
         env.events().publish(
@@ -192,5 +194,30 @@ mod tests {
         // Verify registration event was emitted
         let events = env.events().all();
         assert!(events.len() > 0);
+    }
+
+    #[test]
+    fn test_ttl_extended_on_registration() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(AssetRegistry, ());
+        let client = AssetRegistryClient::new(&env, &contract_id);
+
+        let owner = Address::generate(&env);
+        let asset_type = symbol_short!("GENSET");
+        let metadata = String::from_str(&env, "Caterpillar 3516 Generator");
+        
+        let id = client.register_asset(&asset_type, &metadata, &owner);
+
+        // Verify TTL is set for asset storage entry
+        let asset_ttl = env.storage().persistent().get_ttl(&asset_key(id));
+        assert!(asset_ttl > 0, "Asset TTL should be extended");
+
+        // Verify TTL is set for deduplication key
+        let meta_bytes = Bytes::from(metadata.to_xdr(&env));
+        let meta_hash: BytesN<32> = env.crypto().sha256(&meta_bytes).into();
+        let dk = dedup_key(&owner, &meta_hash);
+        let dedup_ttl = env.storage().persistent().get_ttl(&dk);
+        assert!(dedup_ttl > 0, "Deduplication key TTL should be extended");
     }
 }
