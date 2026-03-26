@@ -175,12 +175,14 @@ mod tests {
     }
 
     fn setup(env: &Env, max_history: u32) -> (LifecycleClient<'_>, AssetRegistryClient<'_>) {
+    fn setup(env: &Env) -> (LifecycleClient<'_>, AssetRegistryClient<'_>) {
         let registry_id = env.register(AssetRegistry, ());
         let registry_client = AssetRegistryClient::new(env, &registry_id);
 
         let lifecycle_id = env.register(Lifecycle, ());
         let client = LifecycleClient::new(env, &lifecycle_id);
         client.initialize(&registry_id, &max_history);
+        client.initialize(&registry_id);
 
         (client, registry_client)
     }
@@ -209,6 +211,7 @@ mod tests {
         let hash = BytesN::from_array(&env, &[1u8; 32]);
         eng_client.register_engineer(&engineer, &hash, &issuer);
 
+        let engineer = Address::generate(&env);
         for _ in 0..10 {
             client.submit_maintenance(
                 &asset_id,
@@ -231,6 +234,10 @@ mod tests {
         let (client, _) = setup(&env, 0);
 
         let engineer = Address::generate(&env);
+        let (client, _) = setup(&env);
+
+        let engineer = Address::generate(&env);
+        // asset_id 999 was never registered — must panic
         client.submit_maintenance(
             &999u64,
             &symbol_short!("OIL_CHG"),
