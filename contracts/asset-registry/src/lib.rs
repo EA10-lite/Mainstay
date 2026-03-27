@@ -12,6 +12,7 @@ pub enum ContractError {
     /// Same owner attempted to register an asset with identical metadata.
     DuplicateAsset = 2,
     UnauthorizedAdmin = 3,
+    UnauthorizedOwner = 4,
 }
 
 #[contracttype]
@@ -128,6 +129,49 @@ impl AssetRegistry {
         env.events().publish(
             (symbol_short!("DEREG_AST"), asset_id),
             (asset.asset_type.clone(), asset.owner.clone())
+        );
+    }
+
+    /// Owner-only: update the metadata of an existing asset (e.g. after refurbishment).
+    /// Removes the old deduplication key and registers the new one.
+    pub fn update_asset_metadata(env: Env, asset_id: u64, owner: Address, new_metadata: String) {
+        owner.require_auth();
+
+        let mut asset: Asset = env
+            .storage()
+            .persistent()
+            .get(&asset_key(asset_id))
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::AssetNotFound));
+
+        if asset.owner != owner {
+            panic_with_error!(&env, ContractError::UnauthorizedOwner);
+        }
+
+        // Remove old dedup key
+        let old_hash: BytesN<32> = env
+            .crypto()
+            .sha256(&Bytes::from(asset.metadata.to_xdr(&env)))
+            .into();
+        env.storage().persistent().remove(&dedup_key(&owner, &old_hash));
+
+        // Reject if new metadata is a duplicate for this owner
+        let new_hash: BytesN<32> = env
+            .crypto()
+            .sha256(&Bytes::from(new_metadata.clone().to_xdr(&env)))
+            .into();
+        let new_dk = dedup_key(&owner, &new_hash);
+        if env.storage().persistent().has(&new_dk) {
+            panic_with_error!(&env, ContractError::DuplicateAsset);
+        }
+
+        // Store new dedup key and updated asset
+        env.storage().persistent().set(&new_dk, &asset_id);
+        asset.metadata = new_metadata.clone();
+        env.storage().persistent().set(&asset_key(asset_id), &asset);
+
+        env.events().publish(
+            (symbol_short!("UPD_META"), asset_id),
+            (owner, new_metadata, env.ledger().timestamp()),
         );
     }
 
@@ -312,6 +356,137 @@ mod tests {
             result,
             Err(Ok(soroban_sdk::Error::from_contract_error(
                 ContractError::UnauthorizedAdmin as u32,
+            ))),
+        );
+    }
+
+    #[test]
+    fn test_owner_can_update_metadata() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(AssetRegistry, ());
+        let client = AssetRegistryClient::new(&env, &contract_id);
+
+        let owner = Address::generate(&env);
+        let id = client.register_asset(
+            &symbol_short!("GENSET"),
+            &String::from_str(&env, "Original spec"),
+            &owner,
+        );
+
+        client.update_asset_metadata(
+            &id,
+            &owner,
+            &String::from_str(&env, "Refurbished spec v2"),
+        );
+
+        let asset = client.get_asset(&id);
+        assert_eq!(asset.metadata, String::from_str(&env, "Refurbished spec v2"));
+    }
+
+    #[test]
+    fn test_update_metadata_emits_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(AssetRegistry, ());
+        let client = AssetRegistryClient::new(&env, &contract_id);
+
+        let owner = Address::generate(&env);
+        let id = client.register_asset(
+            &symbol_short!("GENSET"),
+            &String::from_str(&env, "Original spec"),
+            &owner,
+        );
+
+        client.update_asset_metadata(
+            &id,
+            &owner,
+            &String::from_str(&env, "Refurbished spec v2"),
+        );
+
+        let events = env.events().all();
+        assert!(events.len() >= 2); // registration + metadata update
+    }
+
+    #[test]
+    fn test_non_owner_cannot_update_metadata() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(AssetRegistry, ());
+        let client = AssetRegistryClient::new(&env, &contract_id);
+
+        let owner = Address::generate(&env);
+        let id = client.register_asset(
+            &symbol_short!("GENSET"),
+            &String::from_str(&env, "Original spec"),
+            &owner,
+        );
+
+        let attacker = Address::generate(&env);
+        let result = client.try_update_asset_metadata(
+            &id,
+            &attacker,
+            &String::from_str(&env, "Hacked spec"),
+        );
+        assert_eq!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                ContractError::UnauthorizedOwner as u32,
+            ))),
+        );
+    }
+
+    #[test]
+    fn test_update_metadata_nonexistent_asset() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(AssetRegistry, ());
+        let client = AssetRegistryClient::new(&env, &contract_id);
+
+        let owner = Address::generate(&env);
+        let result = client.try_update_asset_metadata(
+            &999u64,
+            &owner,
+            &String::from_str(&env, "New spec"),
+        );
+        assert_eq!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                ContractError::AssetNotFound as u32,
+            ))),
+        );
+    }
+
+    #[test]
+    fn test_update_metadata_dedup_enforced() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(AssetRegistry, ());
+        let client = AssetRegistryClient::new(&env, &contract_id);
+
+        let owner = Address::generate(&env);
+        // Register two assets with different metadata
+        let id1 = client.register_asset(
+            &symbol_short!("GENSET"),
+            &String::from_str(&env, "Spec A"),
+            &owner,
+        );
+        client.register_asset(
+            &symbol_short!("GENSET"),
+            &String::from_str(&env, "Spec B"),
+            &owner,
+        );
+
+        // Trying to update asset 1 to "Spec B" (already taken by same owner) should fail
+        let result = client.try_update_asset_metadata(
+            &id1,
+            &owner,
+            &String::from_str(&env, "Spec B"),
+        );
+        assert_eq!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                ContractError::DuplicateAsset as u32,
             ))),
         );
     }
