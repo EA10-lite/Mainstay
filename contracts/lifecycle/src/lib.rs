@@ -835,6 +835,28 @@ mod tests {
     }
 
     #[test]
+    fn test_collateral_score_caps_at_100() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, _) = setup(&env, 0);
+        let asset_id = register_asset(&env, &asset_registry_client);
+        let engineer = register_engineer(&env, &engineer_registry_client);
+
+        // FILTER = 5 points each; 25 submissions would be 125 without a cap
+        for _ in 0..25 {
+            client.submit_maintenance(
+                &asset_id,
+                &symbol_short!("FILTER"),
+                &String::from_str(&env, "Filter replacement"),
+                &engineer,
+            );
+        }
+
+        assert_eq!(client.get_collateral_score(&asset_id), 100);
+    }
+
+    #[test]
     fn test_submit_maintenance_revoked_engineer_should_panic() {
         let env = Env::default();
         env.mock_all_auths();
