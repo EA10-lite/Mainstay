@@ -74,7 +74,7 @@
                   "symbol": "OIL_CHG"
                 },
                 {
-                  "string": "ok"
+                  "string": "at t0"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
@@ -99,38 +99,10 @@
                   "u64": 1
                 },
                 {
-                  "symbol": "OIL_CHG"
+                  "symbol": "LUBE"
                 },
                 {
-                  "string": "ok"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-              "function_name": "submit_maintenance",
-              "args": [
-                {
-                  "u64": 1
-                },
-                {
-                  "symbol": "OIL_CHG"
-                },
-                {
-                  "string": "ok"
+                  "string": "at t1"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
@@ -147,7 +119,7 @@
   "ledger": {
     "protocol_version": 22,
     "sequence_number": 0,
-    "timestamp": 0,
+    "timestamp": 1000,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -559,7 +531,7 @@
                             "symbol": "notes"
                           },
                           "val": {
-                            "string": "ok"
+                            "string": "at t0"
                           }
                         },
                         {
@@ -603,7 +575,7 @@
                             "symbol": "notes"
                           },
                           "val": {
-                            "string": "ok"
+                            "string": "at t1"
                           }
                         },
                         {
@@ -611,7 +583,7 @@
                             "symbol": "task_type"
                           },
                           "val": {
-                            "symbol": "OIL_CHG"
+                            "symbol": "LUBE"
                           }
                         },
                         {
@@ -619,51 +591,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 0
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "map": [
-                        {
-                          "key": {
-                            "symbol": "asset_id"
-                          },
-                          "val": {
-                            "u64": 1
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "engineer"
-                          },
-                          "val": {
-                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "notes"
-                          },
-                          "val": {
-                            "string": "ok"
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "task_type"
-                          },
-                          "val": {
-                            "symbol": "OIL_CHG"
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "timestamp"
-                          },
-                          "val": {
-                            "u64": 0
+                            "u64": 1000
                           }
                         }
                       ]
@@ -713,7 +641,7 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "u64": 0
+                  "u64": 1000
                 }
               }
             },
@@ -794,27 +722,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 0
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "map": [
-                        {
-                          "key": {
-                            "symbol": "score"
-                          },
-                          "val": {
-                            "u32": 6
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "timestamp"
-                          },
-                          "val": {
-                            "u64": 0
+                            "u64": 1000
                           }
                         }
                       ]
@@ -864,7 +772,7 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "u32": 6
+                  "u32": 4
                 }
               }
             },
@@ -915,7 +823,7 @@
                                 "symbol": "max_history"
                               },
                               "val": {
-                                "u32": 3
+                                "u32": 200
                               }
                             },
                             {
@@ -1010,39 +918,6 @@
                 "key": {
                   "ledger_key_nonce": {
                     "nonce": 1033654523790656264
-                  }
-                },
-                "durability": "temporary",
-                "val": "void"
-              }
-            },
-            "ext": "v0"
-          },
-          6311999
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
-            "key": {
-              "ledger_key_nonce": {
-                "nonce": 2032731177588607455
-              }
-            },
-            "durability": "temporary"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
-                "key": {
-                  "ledger_key_nonce": {
-                    "nonce": 2032731177588607455
                   }
                 },
                 "durability": "temporary",

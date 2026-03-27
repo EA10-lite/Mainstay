@@ -74,7 +74,7 @@
                   "symbol": "OIL_CHG"
                 },
                 {
-                  "string": "ok"
+                  "string": "First"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
@@ -99,10 +99,10 @@
                   "u64": 1
                 },
                 {
-                  "symbol": "OIL_CHG"
+                  "symbol": "ENGINE"
                 },
                 {
-                  "string": "ok"
+                  "string": "Second"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
@@ -127,10 +127,10 @@
                   "u64": 1
                 },
                 {
-                  "symbol": "OIL_CHG"
+                  "symbol": "FILTER"
                 },
                 {
-                  "string": "ok"
+                  "string": "Third"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
@@ -559,7 +559,7 @@
                             "symbol": "notes"
                           },
                           "val": {
-                            "string": "ok"
+                            "string": "First"
                           }
                         },
                         {
@@ -603,7 +603,7 @@
                             "symbol": "notes"
                           },
                           "val": {
-                            "string": "ok"
+                            "string": "Second"
                           }
                         },
                         {
@@ -611,7 +611,7 @@
                             "symbol": "task_type"
                           },
                           "val": {
-                            "symbol": "OIL_CHG"
+                            "symbol": "ENGINE"
                           }
                         },
                         {
@@ -647,7 +647,7 @@
                             "symbol": "notes"
                           },
                           "val": {
-                            "string": "ok"
+                            "string": "Third"
                           }
                         },
                         {
@@ -655,7 +655,7 @@
                             "symbol": "task_type"
                           },
                           "val": {
-                            "symbol": "OIL_CHG"
+                            "symbol": "FILTER"
                           }
                         },
                         {
@@ -786,7 +786,7 @@
                             "symbol": "score"
                           },
                           "val": {
-                            "u32": 4
+                            "u32": 12
                           }
                         },
                         {
@@ -806,7 +806,7 @@
                             "symbol": "score"
                           },
                           "val": {
-                            "u32": 6
+                            "u32": 17
                           }
                         },
                         {
@@ -864,7 +864,7 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "u32": 6
+                  "u32": 17
                 }
               }
             },
@@ -915,7 +915,7 @@
                                 "symbol": "max_history"
                               },
                               "val": {
-                                "u32": 3
+                                "u32": 200
                               }
                             },
                             {

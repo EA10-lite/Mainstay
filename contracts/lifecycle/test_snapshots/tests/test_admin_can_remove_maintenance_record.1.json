@@ -74,7 +74,7 @@
                   "symbol": "OIL_CHG"
                 },
                 {
-                  "string": "ok"
+                  "string": "a"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
@@ -99,10 +99,10 @@
                   "u64": 1
                 },
                 {
-                  "symbol": "OIL_CHG"
+                  "symbol": "ENGINE"
                 },
                 {
-                  "string": "ok"
+                  "string": "b"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
@@ -127,10 +127,10 @@
                   "u64": 1
                 },
                 {
-                  "symbol": "OIL_CHG"
+                  "symbol": "FILTER"
                 },
                 {
-                  "string": "ok"
+                  "string": "c"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
@@ -142,6 +142,34 @@
         }
       ]
     ],
+    [],
+    [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+              "function_name": "remove_maintenance_record",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "u64": 1
+                },
+                {
+                  "u32": 1
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [],
     []
   ],
   "ledger": {
@@ -559,7 +587,7 @@
                             "symbol": "notes"
                           },
                           "val": {
-                            "string": "ok"
+                            "string": "a"
                           }
                         },
                         {
@@ -603,7 +631,7 @@
                             "symbol": "notes"
                           },
                           "val": {
-                            "string": "ok"
+                            "string": "c"
                           }
                         },
                         {
@@ -611,51 +639,7 @@
                             "symbol": "task_type"
                           },
                           "val": {
-                            "symbol": "OIL_CHG"
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "timestamp"
-                          },
-                          "val": {
-                            "u64": 0
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "map": [
-                        {
-                          "key": {
-                            "symbol": "asset_id"
-                          },
-                          "val": {
-                            "u64": 1
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "engineer"
-                          },
-                          "val": {
-                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "notes"
-                          },
-                          "val": {
-                            "string": "ok"
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "task_type"
-                          },
-                          "val": {
-                            "symbol": "OIL_CHG"
+                            "symbol": "FILTER"
                           }
                         },
                         {
@@ -786,7 +770,7 @@
                             "symbol": "score"
                           },
                           "val": {
-                            "u32": 4
+                            "u32": 12
                           }
                         },
                         {
@@ -806,7 +790,7 @@
                             "symbol": "score"
                           },
                           "val": {
-                            "u32": 6
+                            "u32": 17
                           }
                         },
                         {
@@ -864,7 +848,7 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "u32": 6
+                  "u32": 7
                 }
               }
             },
@@ -915,7 +899,7 @@
                                 "symbol": "max_history"
                               },
                               "val": {
-                                "u32": 3
+                                "u32": 200
                               }
                             },
                             {
@@ -953,6 +937,39 @@
             "ext": "v0"
           },
           4095
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+            "key": {
+              "ledger_key_nonce": {
+                "nonce": 4270020994084947596
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+                "key": {
+                  "ledger_key_nonce": {
+                    "nonce": 4270020994084947596
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
         ]
       ],
       [

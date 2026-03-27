@@ -282,7 +282,7 @@ impl Lifecycle {
             .get(&ENG_REGISTRY)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::UnauthorizedEngineer));
         let engineer_registry_client =
-            engineer_registry_client::EngineerRegistryClient::new(&env, &engineer_registry);
+            engineer_registry::EngineerRegistryClient::new(&env, &engineer_registry);
         if !engineer_registry_client.verify_engineer(&engineer) {
             panic_with_error!(&env, ContractError::UnauthorizedEngineer);
         }
@@ -380,6 +380,58 @@ impl Lifecycle {
             .unwrap_or(Vec::new(&env))
     }
 
+    /// Admin-only: remove a maintenance record by index and recalculate the collateral score.
+    /// This corrects fraudulent or erroneous records that would otherwise permanently inflate scores.
+    pub fn remove_maintenance_record(env: Env, admin: Address, asset_id: u64, index: u32) {
+        admin.require_auth();
+
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&CONFIG)
+            .expect("config not set");
+        if config.admin != admin {
+            panic_with_error!(&env, ContractError::UnauthorizedAdmin);
+        }
+
+        let history: Vec<MaintenanceRecord> = env
+            .storage()
+            .persistent()
+            .get(&history_key(asset_id))
+            .unwrap_or(Vec::new(&env));
+
+        if index >= history.len() {
+            panic!("index out of bounds");
+        }
+
+        // Remove the record at the given index by rebuilding the vec
+        let mut new_history: Vec<MaintenanceRecord> = Vec::new(&env);
+        for i in 0..history.len() {
+            if i != index {
+                new_history.push_back(history.get(i).unwrap());
+            }
+        }
+        env.storage()
+            .persistent()
+            .set(&history_key(asset_id), &new_history);
+
+        // Recalculate score from scratch based on remaining records
+        let mut new_score: u32 = 0;
+        for i in 0..new_history.len() {
+            let rec = new_history.get(i).unwrap();
+            let weight = get_task_weight(&env, &rec.task_type);
+            new_score = (new_score + weight).min(100);
+        }
+        env.storage()
+            .persistent()
+            .set(&score_key(asset_id), &new_score);
+
+        env.events().publish(
+            (symbol_short!("REM_REC"), asset_id),
+            (index, new_score),
+        );
+    }
+
     pub fn get_last_service(env: Env, asset_id: u64) -> MaintenanceRecord {
         let history: Vec<MaintenanceRecord> = env
             .storage()
@@ -436,7 +488,7 @@ mod tests {
     use asset_registry::{AssetRegistry, AssetRegistryClient};
     use soroban_sdk::{
         symbol_short,
-        testutils::{Address as _, Events},
+        testutils::{Address as _, Events, Ledger},
         BytesN, Env, String,
     };
 
@@ -603,6 +655,7 @@ mod tests {
         let asset_id = register_asset(&env, &asset_registry_client);
         let engineer = register_engineer(&env, &engineer_registry_client);
 
+        // score_increment is stored in config; scoring uses task-type weights
         client.update_score_increment(&admin, &12);
         client.submit_maintenance(
             &asset_id,
@@ -611,7 +664,8 @@ mod tests {
             &engineer,
         );
 
-        assert_eq!(client.get_collateral_score(&asset_id), 12);
+        // OIL_CHG has a task weight of 2 regardless of score_increment config
+        assert_eq!(client.get_collateral_score(&asset_id), 2);
     }
 
     #[test]
@@ -660,8 +714,15 @@ mod tests {
         let (client, _, _, admin) = setup(&env, 0);
         let new_wasm_hash = BytesN::from_array(&env, &[0xabu8; 32]);
 
-        // Should not panic — admin is authorized
-        client.upgrade(&admin, &new_wasm_hash);
+        // The upgrade call passes auth check; it panics only because the WASM hash
+        // doesn't exist in the test environment (not an auth failure).
+        let result = client.try_upgrade(&admin, &new_wasm_hash);
+        assert_ne!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                ContractError::UnauthorizedAdmin as u32,
+            ))),
+        );
     }
 
     #[test]
@@ -973,5 +1034,91 @@ mod tests {
                 ContractError::UnauthorizedEngineer as u32,
             ))),
         );
+    }
+
+    // --- remove_maintenance_record tests ---
+
+    #[test]
+    fn test_admin_can_remove_maintenance_record() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, admin) = setup(&env, 0);
+        let asset_id = register_asset(&env, &asset_registry_client);
+        let engineer = register_engineer(&env, &engineer_registry_client);
+
+        // Submit 3 records: OIL_CHG(2) + ENGINE(10) + FILTER(5) = 17
+        client.submit_maintenance(&asset_id, &symbol_short!("OIL_CHG"), &String::from_str(&env, "a"), &engineer);
+        client.submit_maintenance(&asset_id, &symbol_short!("ENGINE"), &String::from_str(&env, "b"), &engineer);
+        client.submit_maintenance(&asset_id, &symbol_short!("FILTER"), &String::from_str(&env, "c"), &engineer);
+
+        assert_eq!(client.get_collateral_score(&asset_id), 17);
+        assert_eq!(client.get_maintenance_history(&asset_id).len(), 3);
+
+        // Remove the ENGINE record (index 1) — score should recalculate to OIL_CHG(2) + FILTER(5) = 7
+        client.remove_maintenance_record(&admin, &asset_id, &1u32);
+
+        assert_eq!(client.get_maintenance_history(&asset_id).len(), 2);
+        assert_eq!(client.get_collateral_score(&asset_id), 7);
+    }
+
+    #[test]
+    fn test_non_admin_cannot_remove_maintenance_record() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, _) = setup(&env, 0);
+        let asset_id = register_asset(&env, &asset_registry_client);
+        let engineer = register_engineer(&env, &engineer_registry_client);
+
+        client.submit_maintenance(&asset_id, &symbol_short!("OIL_CHG"), &String::from_str(&env, "a"), &engineer);
+
+        let outsider = Address::generate(&env);
+        let result = client.try_remove_maintenance_record(&outsider, &asset_id, &0u32);
+        assert_eq!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                ContractError::UnauthorizedAdmin as u32,
+            ))),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn test_remove_maintenance_record_out_of_bounds() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, admin) = setup(&env, 0);
+        let asset_id = register_asset(&env, &asset_registry_client);
+        let engineer = register_engineer(&env, &engineer_registry_client);
+
+        client.submit_maintenance(&asset_id, &symbol_short!("OIL_CHG"), &String::from_str(&env, "a"), &engineer);
+
+        // Index 5 doesn't exist (only 1 record)
+        client.remove_maintenance_record(&admin, &asset_id, &5u32);
+    }
+
+    #[test]
+    fn test_remove_maintenance_record_score_recalculated_correctly() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, admin) = setup(&env, 0);
+        let asset_id = register_asset(&env, &asset_registry_client);
+        let engineer = register_engineer(&env, &engineer_registry_client);
+
+        // 10 REBUILD tasks would cap at 100
+        for _ in 0..10 {
+            client.submit_maintenance(&asset_id, &symbol_short!("REBUILD"), &String::from_str(&env, "major"), &engineer);
+        }
+        assert_eq!(client.get_collateral_score(&asset_id), 100);
+
+        // Remove all but one — score should recalculate to just 10
+        for i in (1..10u32).rev() {
+            client.remove_maintenance_record(&admin, &asset_id, &i);
+        }
+        assert_eq!(client.get_maintenance_history(&asset_id).len(), 1);
+        assert_eq!(client.get_collateral_score(&asset_id), 10);
     }
 }

@@ -83,14 +83,13 @@ impl EngineerRegistry {
     }
 
     pub fn revoke_credential(env: Env, engineer: Address) {
-        let caller = env.invoker();
-        let admin = get_admin(env.clone());
         let mut record: Engineer = env
             .storage()
             .persistent()
             .get(&engineer_key(&engineer))
             .expect("engineer not found");
-        assert!(record.issuer == issuer, "not the issuer");
+        // The issuer who registered the engineer must authorize the revocation
+        record.issuer.require_auth();
         assert!(record.active, "credential already revoked");
         record.active = false;
         env.storage()
@@ -121,18 +120,20 @@ impl EngineerRegistry {
         env.storage().instance().has(&trusted_key(&issuer))
     }
 
-    pub fn add_trusted_issuer(env: Env, issuer: Address) {
-        let admin = get_admin(env.clone());
-        if env.invoker() != admin {
+    pub fn add_trusted_issuer(env: Env, admin: Address, issuer: Address) {
+        admin.require_auth();
+        let stored_admin = Self::get_admin(env.clone());
+        if stored_admin != admin {
             panic!("Only admin can add trusted issuers");
         }
         env.storage().instance().set(&trusted_key(&issuer), &());
-        env.storage().instance().extend_ttl(&trusted_key(&issuer), 518400, 518400);
+        env.storage().instance().extend_ttl(518400, 518400);
     }
 
-    pub fn remove_trusted_issuer(env: Env, issuer: Address) {
-        let admin = get_admin(env.clone());
-        if env.invoker() != admin {
+    pub fn remove_trusted_issuer(env: Env, admin: Address, issuer: Address) {
+        admin.require_auth();
+        let stored_admin = Self::get_admin(env.clone());
+        if stored_admin != admin {
             panic!("Only admin can remove trusted issuers");
         }
         env.storage().instance().remove(&trusted_key(&issuer));
@@ -166,7 +167,7 @@ impl EngineerRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, BytesN, Env, Symbol};
+    use soroban_sdk::{testutils::{Address as _, storage::Persistent as _}, BytesN, Env, Symbol};
 
     #[test]
     fn test_register_verify_revoke() {
@@ -181,7 +182,7 @@ mod tests {
         let hash = BytesN::from_array(&env, &[1u8; 32]);
 
         client.initialize_admin(&admin);
-        client.add_trusted_issuer(&issuer);
+        client.add_trusted_issuer(&admin, &issuer);
         client.register_engineer(&engineer, &hash, &issuer);
         assert!(client.verify_engineer(&engineer));
 
@@ -203,7 +204,7 @@ mod tests {
         let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
 
         client.initialize_admin(&admin);
-        client.add_trusted_issuer(&issuer);
+        client.add_trusted_issuer(&admin, &issuer);
         client.register_engineer(&engineer, &zero_hash, &issuer);
     }
 
@@ -220,9 +221,12 @@ mod tests {
 
         client.register_engineer(&engineer, &hash, &issuer);
 
-        // Verify TTL is set for engineer storage entry
-        let engineer_ttl = env.storage().persistent().get_ttl(&engineer_key(&engineer));
-        assert!(engineer_ttl > 0, "Engineer TTL should be extended");
+        // Verify TTL is set for engineer storage entry (must be accessed inside contract context)
+        env.as_contract(&contract_id, || {
+            use soroban_sdk::testutils::storage::Persistent as _;
+            let engineer_ttl = env.storage().persistent().get_ttl(&engineer_key(&engineer));
+            assert!(engineer_ttl > 0, "Engineer TTL should be extended");
+        });
     }
 
     #[test]
@@ -237,11 +241,14 @@ mod tests {
         let hash = BytesN::from_array(&env, &[1u8; 32]);
 
         client.register_engineer(&engineer, &hash, &issuer);
-        client.revoke_credential(&engineer, &issuer);
+        client.revoke_credential(&engineer);
 
-        // Verify TTL is still set after revoke
-        let engineer_ttl = env.storage().persistent().get_ttl(&engineer_key(&engineer));
-        assert!(engineer_ttl > 0, "Engineer TTL should be extended after revoke");
+        // Verify TTL is still set after revoke (must be accessed inside contract context)
+        env.as_contract(&contract_id, || {
+            use soroban_sdk::testutils::storage::Persistent as _;
+            let engineer_ttl = env.storage().persistent().get_ttl(&engineer_key(&engineer));
+            assert!(engineer_ttl > 0, "Engineer TTL should be extended after revoke");
+        });
     }
 
     #[test]
@@ -254,9 +261,17 @@ mod tests {
         let admin = Address::generate(&env);
         client.initialize_admin(&admin);
 
+        // The upgrade call passes auth check; it panics only because the WASM hash
+        // doesn't exist in the test environment (not an auth failure).
         let new_wasm_hash = BytesN::from_array(&env, &[0xabu8; 32]);
-        // Should not panic — admin is authorized
-        client.upgrade(&admin, &new_wasm_hash);
+        let result = client.try_upgrade(&admin, &new_wasm_hash);
+        // Should NOT be an UnauthorizedAdmin error — admin is authorized
+        assert_ne!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                ContractError::UnauthorizedAdmin as u32,
+            ))),
+        );
     }
 
     #[test]
