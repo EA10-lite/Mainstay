@@ -1853,6 +1853,22 @@
                             },
                             {
                               "key": {
+                                "symbol": "decay_interval"
+                              },
+                              "val": {
+                                "u64": 2592000
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "decay_rate"
+                              },
+                              "val": {
+                                "u32": 5
+                              }
+                            },
+                            {
+                              "key": {
                                 "symbol": "max_history"
                               },
                               "val": {

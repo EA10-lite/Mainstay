@@ -45,6 +45,8 @@ pub struct Config {
     pub admin: Address,
     pub max_history: u32,
     pub score_increment: u32,
+    pub decay_rate: u32,
+    pub decay_interval: u64,
 }
 
 const ASSET_REGISTRY: Symbol = symbol_short!("REGISTRY");
@@ -52,8 +54,8 @@ const ENG_REGISTRY: Symbol = symbol_short!("ENG_REG");
 const CONFIG: Symbol = symbol_short!("CONFIG");
 const DEFAULT_MAX_HISTORY: u32 = 200;
 const DEFAULT_SCORE_INCREMENT: u32 = 5;
-const DECAY_INTERVAL: u64 = 2592000; // 30 days in seconds
-const DECAY_RATE: u32 = 5;
+const DEFAULT_DECAY_RATE: u32 = 5;
+const DEFAULT_DECAY_INTERVAL: u64 = 2592000; // 30 days in seconds
 
 fn history_key(asset_id: u64) -> (Symbol, u64) {
     (symbol_short!("HIST"), asset_id)
@@ -138,6 +140,8 @@ impl Lifecycle {
                 max_history
             },
             score_increment: DEFAULT_SCORE_INCREMENT,
+            decay_rate: DEFAULT_DECAY_RATE,
+            decay_interval: DEFAULT_DECAY_INTERVAL,
         };
         env.storage().instance().set(&CONFIG, &config);
 
@@ -160,6 +164,31 @@ impl Lifecycle {
         }
 
         config.score_increment = score_increment;
+        env.storage().instance().set(&CONFIG, &config);
+    }
+
+    /// Admin-only: update the decay rate and interval for collateral score decay.
+    /// decay_rate: points to deduct per interval
+    /// decay_interval: time interval in seconds for each decay step
+    pub fn update_decay_config(
+        env: Env,
+        admin: Address,
+        decay_rate: u32,
+        decay_interval: u64,
+    ) {
+        admin.require_auth();
+
+        let mut config: Config = env
+            .storage()
+            .instance()
+            .get(&CONFIG)
+            .expect("config not set");
+        if config.admin != admin {
+            panic_with_error!(&env, ContractError::UnauthorizedAdmin);
+        }
+
+        config.decay_rate = decay_rate;
+        config.decay_interval = decay_interval;
         env.storage().instance().set(&CONFIG, &config);
     }
 
@@ -355,12 +384,18 @@ impl Lifecycle {
             .get(&last_update_key(asset_id))
             .unwrap_or(0u64);
 
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&CONFIG)
+            .expect("config not set");
+
         let current_time = env.ledger().timestamp();
         let time_elapsed = current_time.saturating_sub(last_update);
 
-        // Calculate decay: 5 points per 30-day interval
-        let decay_intervals = time_elapsed / DECAY_INTERVAL;
-        let total_decay = (decay_intervals as u32) * DECAY_RATE;
+        // Calculate decay using configured rate and interval
+        let decay_intervals = time_elapsed / config.decay_interval;
+        let total_decay = (decay_intervals as u32) * config.decay_rate;
 
         let new_score = current_score.saturating_sub(total_decay);
 
@@ -697,6 +732,86 @@ mod tests {
                 ContractError::UnauthorizedAdmin as u32,
             ))),
         );
+    }
+
+    #[test]
+    fn test_admin_can_update_decay_config() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, admin) = setup(&env, 0);
+        let asset_id = register_asset(&env, &asset_registry_client);
+        let engineer = register_engineer(&env, &engineer_registry_client);
+
+        // Build up a score first
+        client.submit_maintenance(
+            &asset_id,
+            &symbol_short!("ENGINE"),
+            &String::from_str(&env, "Major overhaul"),
+            &engineer,
+        );
+
+        // Update decay config: 10 points per 60 seconds (for testing)
+        client.update_decay_config(&admin, &10, &60);
+
+        // Advance ledger time by 120 seconds (2 intervals)
+        env.ledger().with_mut(|li| li.timestamp = li.timestamp + 120);
+
+        // Apply decay: should lose 20 points (10 * 2 intervals)
+        let initial_score = client.get_collateral_score(&asset_id);
+        client.decay_score(&asset_id);
+        let new_score = client.get_collateral_score(&asset_id);
+
+        assert_eq!(new_score, initial_score.saturating_sub(20));
+    }
+
+    #[test]
+    fn test_non_admin_cannot_update_decay_config() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _) = setup(&env, 0);
+        let outsider = Address::generate(&env);
+        let result = client.try_update_decay_config(&outsider, &10, &60);
+        assert_eq!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                ContractError::UnauthorizedAdmin as u32,
+            ))),
+        );
+    }
+
+    #[test]
+    fn test_decay_score_uses_configured_values() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, admin) = setup(&env, 0);
+        let asset_id = register_asset(&env, &asset_registry_client);
+        let engineer = register_engineer(&env, &engineer_registry_client);
+
+        // Build up a score
+        for _ in 0..5 {
+            client.submit_maintenance(
+                &asset_id,
+                &symbol_short!("ENGINE"),
+                &String::from_str(&env, "Major work"),
+                &engineer,
+            );
+        }
+
+        // Set custom decay: 2 points per 100 seconds
+        client.update_decay_config(&admin, &2, &100);
+
+        // Advance time by 250 seconds (2 full intervals)
+        env.ledger().with_mut(|li| li.timestamp = li.timestamp + 250);
+
+        // Apply decay: should lose 4 points (2 * 2 intervals)
+        let initial_score = client.get_collateral_score(&asset_id);
+        client.decay_score(&asset_id);
+        let new_score = client.get_collateral_score(&asset_id);
+
+        assert_eq!(new_score, initial_score.saturating_sub(4));
     }
 
     #[test]
