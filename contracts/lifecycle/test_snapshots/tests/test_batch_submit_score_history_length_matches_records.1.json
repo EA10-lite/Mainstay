@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 9,
+    "address": 8,
     "nonce": 0
   },
   "auth": [
@@ -109,16 +109,74 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-              "function_name": "submit_maintenance",
+              "function_name": "batch_submit_maintenance",
               "args": [
                 {
                   "u64": 1
                 },
                 {
-                  "symbol": "ENGINE"
-                },
-                {
-                  "string": "Major overhaul"
+                  "vec": [
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "notes"
+                          },
+                          "val": {
+                            "string": "First"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "task_type"
+                          },
+                          "val": {
+                            "symbol": "OIL_CHG"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "notes"
+                          },
+                          "val": {
+                            "string": "Second"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "task_type"
+                          },
+                          "val": {
+                            "symbol": "INSPECT"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "notes"
+                          },
+                          "val": {
+                            "string": "Third"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "task_type"
+                          },
+                          "val": {
+                            "symbol": "ENGINE"
+                          }
+                        }
+                      ]
+                    }
+                  ]
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
@@ -646,7 +704,95 @@
                             "symbol": "notes"
                           },
                           "val": {
-                            "string": "Major overhaul"
+                            "string": "First"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "task_type"
+                          },
+                          "val": {
+                            "symbol": "OIL_CHG"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "timestamp"
+                          },
+                          "val": {
+                            "u64": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "asset_id"
+                          },
+                          "val": {
+                            "u64": 1
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "engineer"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "notes"
+                          },
+                          "val": {
+                            "string": "Second"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "task_type"
+                          },
+                          "val": {
+                            "symbol": "INSPECT"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "timestamp"
+                          },
+                          "val": {
+                            "u64": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "asset_id"
+                          },
+                          "val": {
+                            "u64": 1
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "engineer"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "notes"
+                          },
+                          "val": {
+                            "string": "Third"
                           }
                         },
                         {
@@ -765,7 +911,47 @@
                             "symbol": "score"
                           },
                           "val": {
-                            "u32": 10
+                            "u32": 2
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "timestamp"
+                          },
+                          "val": {
+                            "u64": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "score"
+                          },
+                          "val": {
+                            "u32": 4
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "timestamp"
+                          },
+                          "val": {
+                            "u64": 0
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "score"
+                          },
+                          "val": {
+                            "u32": 14
                           }
                         },
                         {
@@ -823,7 +1009,7 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "u32": 10
+                  "u32": 14
                 }
               }
             },

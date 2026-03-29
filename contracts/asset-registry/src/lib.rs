@@ -14,6 +14,7 @@ pub enum ContractError {
     UnauthorizedAdmin = 3,
     UnauthorizedOwner = 4,
     NotInitialized = 5,
+    AdminAlreadyInitialized = 6,
 }
 
 #[contracttype]
@@ -146,7 +147,7 @@ impl AssetRegistry {
     pub fn initialize_admin(env: Env, admin: Address) {
         admin.require_auth();
         if env.storage().instance().has(&ADMIN_KEY) {
-            panic!("Admin already initialized");
+            panic_with_error!(&env, ContractError::AdminAlreadyInitialized);
         }
         env.storage().instance().set(&ADMIN_KEY, &admin);
     }
