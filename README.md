@@ -46,8 +46,24 @@ This makes Mainstay:
 
 ### Test
 
+From the repository root, run the full workspace test suite (same as CI):
+
 ```bash
 ./scripts/test.sh
+```
+
+Optional arguments are forwarded to `cargo test`, for example:
+
+```bash
+./scripts/test.sh -p lifecycle
+./scripts/test.sh -p lifecycle my_test_name -- --nocapture
+```
+
+On Windows (PowerShell):
+
+```powershell
+.\scripts\test.ps1
+.\scripts\test.ps1 -p lifecycle
 ```
 
 ### Setup Environment

@@ -38,6 +38,10 @@ fn issuer_engineers_key(issuer: &Address) -> (Symbol, Address) {
     (symbol_short!("ISS_ENGS"), issuer.clone())
 }
 
+fn issuer_list_key() -> Symbol {
+    symbol_short!("ISS_LIST")
+}
+
 #[contract]
 pub struct EngineerRegistry;
 
@@ -135,6 +139,13 @@ impl EngineerRegistry {
         env.storage().instance().has(&trusted_key(&issuer))
     }
 
+    pub fn get_trusted_issuers(env: Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&issuer_list_key())
+            .unwrap_or(Vec::new(&env))
+    }
+
     pub fn add_trusted_issuer(env: Env, admin: Address, issuer: Address) {
         admin.require_auth();
         let stored_admin: Address = env.storage().instance().get(&admin_key())
@@ -143,6 +154,11 @@ impl EngineerRegistry {
             panic_with_error!(&env, ContractError::UnauthorizedAdmin);
         }
         env.storage().instance().set(&trusted_key(&issuer), &());
+        let mut list: Vec<Address> = env.storage().instance().get(&issuer_list_key()).unwrap_or(Vec::new(&env));
+        if !list.contains(issuer.clone()) {
+            list.push_back(issuer.clone());
+        }
+        env.storage().instance().set(&issuer_list_key(), &list);
     }
 
     pub fn remove_trusted_issuer(env: Env, admin: Address, issuer: Address) {
@@ -153,6 +169,14 @@ impl EngineerRegistry {
             panic_with_error!(&env, ContractError::UnauthorizedAdmin);
         }
         env.storage().instance().remove(&trusted_key(&issuer));
+        let list: Vec<Address> = env.storage().instance().get(&issuer_list_key()).unwrap_or(Vec::new(&env));
+        let mut new_list: Vec<Address> = Vec::new(&env);
+        for addr in list.iter() {
+            if addr != issuer {
+                new_list.push_back(addr);
+            }
+        }
+        env.storage().instance().set(&issuer_list_key(), &new_list);
     }
 
     /// Returns all engineer addresses credentialed by the given issuer.

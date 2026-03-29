@@ -533,6 +533,67 @@ impl Lifecycle {
         Self::get_collateral_score(env, asset_id) >= threshold
     }
 
+    pub fn get_asset_registry(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&ASSET_REGISTRY)
+            .expect("asset registry not set")
+    }
+
+    pub fn update_asset_registry(env: Env, admin: Address, new_registry: Address) {
+        admin.require_auth();
+
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&CONFIG)
+            .expect("config not set");
+        if config.admin != admin {
+            panic_with_error!(&env, ContractError::UnauthorizedAdmin);
+        }
+
+        env.storage().instance().set(&ASSET_REGISTRY, &new_registry);
+
+        env.events().publish(
+            (symbol_short!("UPD_AST"),),
+            (admin, new_registry),
+        );
+    }
+
+    pub fn get_engineer_registry(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&ENG_REGISTRY)
+            .expect("engineer registry not set")
+    }
+
+    pub fn update_engineer_registry(env: Env, admin: Address, new_registry: Address) {
+        admin.require_auth();
+
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&CONFIG)
+            .expect("config not set");
+        if config.admin != admin {
+            panic_with_error!(&env, ContractError::UnauthorizedAdmin);
+        }
+
+        env.storage().instance().set(&ENG_REGISTRY, &new_registry);
+
+        env.events().publish(
+            (symbol_short!("UPD_ENG"),),
+            (admin, new_registry),
+        );
+    }
+
+    pub fn get_config(env: Env) -> Config {
+        env.storage()
+            .instance()
+            .get(&CONFIG)
+            .expect("config not set")
+    }
+
     /// Admin-only: upgrade the contract WASM to a new hash.
     pub fn upgrade(env: Env, admin: Address, _new_wasm_hash: BytesN<32>) {
         admin.require_auth();
@@ -583,7 +644,7 @@ mod tests {
     use soroban_sdk::{
         symbol_short,
         testutils::{Address as _, Events, Ledger},
-        BytesN, Env, String,
+        BytesN, Env, String, TryIntoVal,
     };
 
     fn setup<'a>(
@@ -862,6 +923,60 @@ mod tests {
         let new_score = client.get_collateral_score(&asset_id);
 
         assert_eq!(new_score, initial_score.saturating_sub(4));
+    }
+
+    #[test]
+    fn test_decay_score_five_points_per_thirty_day_interval() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, _) = setup(&env, 0);
+        let asset_id = register_asset(&env, &asset_registry_client);
+        let engineer = register_engineer(&env, &engineer_registry_client);
+
+        for _ in 0..5 {
+            client.submit_maintenance(
+                &asset_id,
+                &symbol_short!("ENGINE"),
+                &String::from_str(&env, "Build score to 50"),
+                &engineer,
+            );
+        }
+        assert_eq!(client.get_collateral_score(&asset_id), 50);
+
+        env.ledger().with_mut(|li| li.timestamp = li.timestamp + 2 * DEFAULT_DECAY_INTERVAL);
+
+        let decayed = client.decay_score(&asset_id);
+        assert_eq!(decayed, 40);
+        assert_eq!(client.get_collateral_score(&asset_id), 40);
+    }
+
+    #[test]
+    fn test_decay_score_clamps_at_zero_after_long_elapsed_time() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, _) = setup(&env, 0);
+        let asset_id = register_asset(&env, &asset_registry_client);
+        let engineer = register_engineer(&env, &engineer_registry_client);
+
+        client.submit_maintenance(
+            &asset_id,
+            &symbol_short!("ENGINE"),
+            &String::from_str(&env, "Single major service"),
+            &engineer,
+        );
+        assert_eq!(client.get_collateral_score(&asset_id), 10);
+
+        const SECONDS_PER_DAY: u64 = 86_400;
+        const DAYS_PER_YEAR: u64 = 365;
+        env.ledger().with_mut(|li| {
+            li.timestamp = li.timestamp + DAYS_PER_YEAR * SECONDS_PER_DAY;
+        });
+
+        let decayed = client.decay_score(&asset_id);
+        assert_eq!(decayed, 0);
+        assert_eq!(client.get_collateral_score(&asset_id), 0);
     }
 
     #[test]
@@ -1226,6 +1341,43 @@ mod tests {
     }
 
     #[test]
+    fn test_batch_submit_fails_atomically_on_history_cap() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, _) = setup(&env, 3);
+        let asset_id = register_asset(&env, &asset_registry_client);
+        let engineer = register_engineer(&env, &engineer_registry_client);
+
+        // Fill to max_history - 1 = 2
+        for _ in 0..2 {
+            client.submit_maintenance(
+                &asset_id,
+                &symbol_short!("OIL_CHG"),
+                &String::from_str(&env, ""),
+                &engineer,
+            );
+        }
+        assert_eq!(client.get_maintenance_history(&asset_id).len(), 2);
+
+        // Batch of 2 would push total to 4, exceeding cap of 3
+        let mut records = Vec::new(&env);
+        records.push_back(BatchRecord { task_type: symbol_short!("OIL_CHG"), notes: String::from_str(&env, "") });
+        records.push_back(BatchRecord { task_type: symbol_short!("OIL_CHG"), notes: String::from_str(&env, "") });
+
+        let result = client.try_batch_submit_maintenance(&asset_id, &records, &engineer);
+        assert_eq!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                ContractError::HistoryCapReached as u32,
+            ))),
+        );
+
+        // No records written — history still at 2
+        assert_eq!(client.get_maintenance_history(&asset_id).len(), 2);
+    }
+
+    #[test]
     fn test_batch_submit_exceeds_history_cap() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1401,6 +1553,50 @@ mod tests {
     }
 
     #[test]
+    fn test_decay_score_emits_correct_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, admin) = setup(&env, 0);
+        let asset_id = register_asset(&env, &asset_registry_client);
+        let engineer = register_engineer(&env, &engineer_registry_client);
+
+        // ENGINE = 10 pts
+        client.submit_maintenance(
+            &asset_id,
+            &symbol_short!("ENGINE"),
+            &String::from_str(&env, ""),
+            &engineer,
+        );
+        let initial_score: u32 = 10;
+
+        // Use fast decay: 3 pts per 60s, advance 60s (1 interval)
+        client.update_decay_config(&admin, &3, &60);
+        env.ledger().with_mut(|li| li.timestamp += 60);
+        let decay_time = env.ledger().timestamp();
+
+        client.decay_score(&asset_id);
+
+        let events = env.events().all();
+        assert_eq!(events.len(), 1);
+
+        let (_, topics, data) = events.get(0).unwrap();
+
+        // Topics: (symbol("DECAY"), asset_id)
+        let t0: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+        let t1: u64 = topics.get(1).unwrap().try_into_val(&env).unwrap();
+        assert_eq!(t0, symbol_short!("DECAY"));
+        assert_eq!(t1, asset_id);
+
+        // Data: (old_score, new_score, timestamp)
+        let expected_new_score: u32 = initial_score - 3;
+        let (ev_old, ev_new, ev_ts): (u32, u32, u64) = data.try_into_val(&env).unwrap();
+        assert_eq!(ev_old, initial_score);
+        assert_eq!(ev_new, expected_new_score);
+        assert_eq!(ev_ts, decay_time);
+    }
+
+    #[test]
     fn test_admin_can_reset_score() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1421,6 +1617,38 @@ mod tests {
         // Admin resets the score
         client.reset_score(&admin, &asset_id);
         assert_eq!(client.get_collateral_score(&asset_id), 0);
+    }
+
+    #[test]
+    fn test_task_weight_tiers() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, admin) = setup(&env, 0);
+        let asset_id = register_asset(&env, &asset_registry_client);
+        let engineer = register_engineer(&env, &engineer_registry_client);
+
+        // Minor: OIL_CHG = 2
+        client.submit_maintenance(&asset_id, &symbol_short!("OIL_CHG"), &String::from_str(&env, ""), &engineer);
+        assert_eq!(client.get_collateral_score(&asset_id), 2);
+
+        client.reset_score(&admin, &asset_id);
+
+        // Medium: FILTER = 5
+        client.submit_maintenance(&asset_id, &symbol_short!("FILTER"), &String::from_str(&env, ""), &engineer);
+        assert_eq!(client.get_collateral_score(&asset_id), 5);
+
+        client.reset_score(&admin, &asset_id);
+
+        // Major: ENGINE = 10
+        client.submit_maintenance(&asset_id, &symbol_short!("ENGINE"), &String::from_str(&env, ""), &engineer);
+        assert_eq!(client.get_collateral_score(&asset_id), 10);
+
+        client.reset_score(&admin, &asset_id);
+
+        // Unknown type = 3
+        client.submit_maintenance(&asset_id, &symbol_short!("UNKNOWN"), &String::from_str(&env, ""), &engineer);
+        assert_eq!(client.get_collateral_score(&asset_id), 3);
     }
 
     #[test]

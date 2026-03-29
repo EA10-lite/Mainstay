@@ -813,6 +813,35 @@ mod tests {
     }
 
     #[test]
+    fn test_update_asset_metadata_removes_old_dedup_key() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(AssetRegistry, ());
+        let client = AssetRegistryClient::new(&env, &contract_id);
+
+        let owner = Address::generate(&env);
+        let meta_a = String::from_str(&env, "Spec A");
+        let meta_b = String::from_str(&env, "Spec B");
+
+        // Register with metadata A, then update to B
+        let id = client.register_asset(&symbol_short!("GENSET"), &meta_a, &owner);
+        client.update_asset_metadata(&id, &owner, &meta_b);
+
+        // Old dedup key (A) is gone — owner can register metadata A again
+        let id2 = client.register_asset(&symbol_short!("GENSET"), &meta_a, &owner);
+        assert_ne!(id, id2);
+
+        // New dedup key (B) is present — owner cannot register metadata B again
+        let result = client.try_register_asset(&symbol_short!("GENSET"), &meta_b, &owner);
+        assert_eq!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                ContractError::DuplicateAsset as u32,
+            ))),
+        );
+    }
+
+    #[test]
     fn test_get_assets_by_owner_updated_after_deregister() {
         let env = Env::default();
         env.mock_all_auths();
