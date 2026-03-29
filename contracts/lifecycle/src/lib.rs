@@ -122,8 +122,17 @@ pub struct Lifecycle;
 
 #[contractimpl]
 impl Lifecycle {
+    /// Initialize the lifecycle contract with registry addresses and configuration.
     /// Must be called once after deployment to bind dependent registries.
-    /// Pass `0` for `max_history` to use the default of 200 records per asset.
+    ///
+    /// # Arguments
+    /// * `asset_registry` - Address of the asset registry contract
+    /// * `engineer_registry` - Address of the engineer registry contract
+    /// * `admin` - Address that will have administrative privileges
+    /// * `max_history` - Maximum maintenance records per asset (0 for default 200)
+    ///
+    /// # Panics
+    /// - [`ContractError::AlreadyInitialized`] if contract has already been initialized
     pub fn initialize(
         env: Env,
         asset_registry: Address,
@@ -162,6 +171,17 @@ impl Lifecycle {
         );
     }
 
+    /// Admin-only function to update the score increment configuration.
+    /// This controls how much scores increase per maintenance task.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address that must match the stored config admin
+    /// * `score_increment` - New score increment value (must be > 0)
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
+    /// - [`ContractError::UnauthorizedAdmin`] if caller is not the admin
+    /// - [`ContractError::InvalidConfig`] if score_increment is 0
     pub fn update_score_increment(env: Env, admin: Address, score_increment: u32) {
         admin.require_auth();
 
@@ -182,9 +202,18 @@ impl Lifecycle {
         env.storage().instance().set(&CONFIG, &config);
     }
 
-    /// Admin-only: update the decay rate and interval for collateral score decay.
-    /// decay_rate: points to deduct per interval
-    /// decay_interval: time interval in seconds for each decay step
+    /// Admin-only function to update the decay rate and interval for collateral score decay.
+    /// This controls how quickly scores decrease over time without maintenance.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address that must match the stored config admin
+    /// * `decay_rate` - Points to deduct per decay interval
+    /// * `decay_interval` - Time interval in seconds for each decay step (must be > 0)
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
+    /// - [`ContractError::UnauthorizedAdmin`] if caller is not the admin
+    /// - [`ContractError::InvalidConfig`] if decay_interval is 0
     pub fn update_decay_config(
         env: Env,
         admin: Address,
@@ -211,7 +240,16 @@ impl Lifecycle {
         env.storage().instance().set(&CONFIG, &config);
     }
 
-    /// Admin-only: update the eligibility threshold for collateral scoring.
+    /// Admin-only function to update the eligibility threshold for collateral scoring.
+    /// This sets the minimum score required for an asset to be eligible as collateral.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address that must match the stored config admin
+    /// * `threshold` - New eligibility threshold value
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
+    /// - [`ContractError::UnauthorizedAdmin`] if caller is not the admin
     pub fn update_eligibility_threshold(env: Env, admin: Address, threshold: u32) {
         admin.require_auth();
 
@@ -228,6 +266,20 @@ impl Lifecycle {
         env.storage().instance().set(&CONFIG, &config);
     }
 
+    /// Submit a maintenance record for an asset.
+    /// Only verified engineers can submit maintenance records.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset being maintained
+    /// * `task_type` - Symbol representing the type of maintenance task
+    /// * `notes` - String containing maintenance notes and details
+    /// * `engineer` - Address of the engineer performing the maintenance
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
+    /// - [`ContractError::AssetNotFound`] if the asset does not exist
+    /// - [`ContractError::UnauthorizedEngineer`] if the engineer is not verified
+    /// - [`ContractError::HistoryCapReached`] if the asset has reached max history records
     pub fn submit_maintenance(
         env: Env,
         asset_id: u64,
@@ -340,7 +392,18 @@ impl Lifecycle {
     }
 
     /// Submit multiple maintenance records for the same asset in a single transaction.
-    /// All records are validated before any are written.
+    /// All records are validated before any are written to ensure atomicity.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset being maintained
+    /// * `records` - Vec of BatchRecord containing maintenance data
+    /// * `engineer` - Address of the engineer performing the maintenance
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
+    /// - [`ContractError::AssetNotFound`] if the asset does not exist
+    /// - [`ContractError::UnauthorizedEngineer`] if the engineer is not verified
+    /// - [`ContractError::HistoryCapReached`] if adding records would exceed max history
     pub fn batch_submit_maintenance(
         env: Env,
         asset_id: u64,
@@ -425,7 +488,16 @@ impl Lifecycle {
 
     /// Apply time-based decay to an asset's collateral score.
     /// Can be called by anyone to ensure scores reflect current maintenance status.
-    /// Decay rate: 5 points per 30 days of no maintenance.
+    /// Uses configured decay rate and interval settings.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset to decay
+    ///
+    /// # Returns
+    /// The new collateral score after applying decay
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
     pub fn decay_score(env: Env, asset_id: u64) -> u32 {
         let current_score: u32 = env
             .storage()
@@ -479,6 +551,13 @@ impl Lifecycle {
         new_score
     }
 
+    /// Get the complete maintenance history for an asset.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset
+    ///
+    /// # Returns
+    /// Vec containing all maintenance records in chronological order
     pub fn get_maintenance_history(env: Env, asset_id: u64) -> Vec<MaintenanceRecord> {
         env.storage()
             .persistent()
@@ -486,8 +565,16 @@ impl Lifecycle {
             .unwrap_or(Vec::new(&env))
     }
 
-    /// Returns a paginated slice of the maintenance history.
-    /// `offset` is the zero-based start index; `limit` is the max number of records to return.
+    /// Get a paginated slice of the maintenance history for an asset.
+    /// Useful for UI components that display maintenance records in pages.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset
+    /// * `offset` - Zero-based start index for pagination
+    /// * `limit` - Maximum number of records to return
+    ///
+    /// # Returns
+    /// Vec containing the requested page of maintenance records
     pub fn get_maintenance_history_page(
         env: Env,
         asset_id: u64,
@@ -513,6 +600,16 @@ impl Lifecycle {
         page
     }
 
+    /// Get the most recent maintenance record for an asset.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset
+    ///
+    /// # Returns
+    /// The last MaintenanceRecord for the asset
+    ///
+    /// # Panics
+    /// - [`ContractError::NoMaintenanceHistory`] if no maintenance history exists
     pub fn get_last_service(env: Env, asset_id: u64) -> MaintenanceRecord {
         let history: Vec<MaintenanceRecord> = env
             .storage()
@@ -525,6 +622,18 @@ impl Lifecycle {
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::NoMaintenanceHistory))
     }
 
+    /// Get the current collateral score for an asset.
+    /// Verifies asset exists before returning the score.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset
+    ///
+    /// # Returns
+    /// The current collateral score (0-100)
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
+    /// - [`ContractError::AssetNotFound`] if the asset does not exist
     pub fn get_collateral_score(env: Env, asset_id: u64) -> u32 {
         // Verify asset exists before returning score
         let asset_registry: Address = env
@@ -542,7 +651,14 @@ impl Lifecycle {
             .unwrap_or(0)
     }
 
-    /// Returns the full score trend: one (timestamp, score) entry per maintenance event.
+    /// Get the complete score history for an asset.
+    /// Returns one (timestamp, score) entry per maintenance event.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset
+    ///
+    /// # Returns
+    /// Vec of ScoreEntry containing the complete score trend
     pub fn get_score_history(env: Env, asset_id: u64) -> Vec<ScoreEntry> {
         env.storage()
             .persistent()
@@ -550,9 +666,15 @@ impl Lifecycle {
             .unwrap_or(Vec::new(&env))
     }
 
-    /// Returns the last `n` ScoreEntry items from the score history.
-    /// If `n` is 0 or the history is empty, returns an empty vec.
-    /// If `n` exceeds the history length, returns all entries.
+    /// Get the last `n` ScoreEntry items from the score history.
+    /// Useful for displaying recent score trends in dashboards.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset
+    /// * `n` - Number of most recent entries to return
+    ///
+    /// # Returns
+    /// Vec containing the last `n` score entries (or fewer if history is shorter)
     pub fn get_score_trend(env: Env, asset_id: u64, n: u32) -> Vec<ScoreEntry> {
         if n == 0 {
             return Vec::new(&env);
@@ -574,6 +696,18 @@ impl Lifecycle {
         result
     }
 
+    /// Check if an asset is eligible for collateral based on its score.
+    /// Verifies asset exists and compares score to eligibility threshold.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset
+    ///
+    /// # Returns
+    /// `true` if the asset meets eligibility criteria; `false` otherwise
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
+    /// - [`ContractError::AssetNotFound`] if the asset does not exist
     pub fn is_collateral_eligible(env: Env, asset_id: u64) -> bool {
         // Verify asset exists before checking eligibility
         let asset_registry: Address = env
@@ -593,6 +727,13 @@ impl Lifecycle {
         Self::get_collateral_score(env, asset_id) >= config.eligibility_threshold
     }
 
+    /// Get the address of the asset registry contract.
+    ///
+    /// # Returns
+    /// The address of the currently configured asset registry
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
     pub fn get_asset_registry(env: Env) -> Address {
         env.storage()
             .instance()
@@ -600,6 +741,16 @@ impl Lifecycle {
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::NotInitialized))
     }
 
+    /// Admin-only function to update the asset registry address.
+    /// Useful for registry migrations or updates.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address that must match the stored config admin
+    /// * `new_registry` - The new asset registry contract address
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
+    /// - [`ContractError::UnauthorizedAdmin`] if caller is not the admin
     pub fn update_asset_registry(env: Env, admin: Address, new_registry: Address) {
         admin.require_auth();
 
@@ -620,6 +771,13 @@ impl Lifecycle {
         );
     }
 
+    /// Get the address of the engineer registry contract.
+    ///
+    /// # Returns
+    /// The address of the currently configured engineer registry
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
     pub fn get_engineer_registry(env: Env) -> Address {
         env.storage()
             .instance()
@@ -627,6 +785,16 @@ impl Lifecycle {
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::NotInitialized))
     }
 
+    /// Admin-only function to update the engineer registry address.
+    /// Useful for registry migrations or updates.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address that must match the stored config admin
+    /// * `new_registry` - The new engineer registry contract address
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
+    /// - [`ContractError::UnauthorizedAdmin`] if caller is not the admin
     pub fn update_engineer_registry(env: Env, admin: Address, new_registry: Address) {
         admin.require_auth();
 
@@ -647,6 +815,13 @@ impl Lifecycle {
         );
     }
 
+    /// Get the current configuration of the lifecycle contract.
+    ///
+    /// # Returns
+    /// The complete Config struct with all current settings
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
     pub fn get_config(env: Env) -> Config {
         env.storage()
             .instance()
@@ -654,7 +829,16 @@ impl Lifecycle {
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::NotInitialized))
     }
 
-    /// Admin-only: upgrade the contract WASM to a new hash.
+    /// Admin-only function to upgrade the contract WASM to a new hash.
+    /// This allows for contract updates while maintaining state.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address that must match the stored config admin
+    /// * `new_wasm_hash` - The hash of the new WASM code to deploy
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if contract has not been initialized
+    /// - [`ContractError::UnauthorizedAdmin`] if caller is not the admin
     pub fn upgrade(env: Env, admin: Address, _new_wasm_hash: BytesN<32>) {
         admin.require_auth();
 
