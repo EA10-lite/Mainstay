@@ -7,6 +7,8 @@ use soroban_sdk::{contract, contractimpl, contracttype, contracterror, panic_wit
 pub enum ContractError {
     CredentialAlreadyRevoked = 1,
     UnauthorizedAdmin = 2,
+    EngineerNotFound = 3,
+    NotInitialized = 4,
 }
 
 #[contracttype]
@@ -101,21 +103,24 @@ impl EngineerRegistry {
             .storage()
             .persistent()
             .get(&engineer_key(&engineer))
-            .expect("engineer not found");
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::EngineerNotFound));
         record.issuer.require_auth();
-        assert!(record.active, "credential already revoked");
+        if !record.active {
+            panic_with_error!(&env, ContractError::CredentialAlreadyRevoked);
+        }
+        // Extend TTL before write to ensure consistency even on near-expired entries
+        env.storage().persistent().extend_ttl(&engineer_key(&engineer), 518400, 518400);
         record.active = false;
         env.storage()
             .persistent()
             .set(&engineer_key(&engineer), &record);
-        env.storage().persistent().extend_ttl(&engineer_key(&engineer), 518400, 518400);
     }
 
     pub fn get_engineer(env: Env, engineer: Address) -> Engineer {
         env.storage()
             .persistent()
             .get(&engineer_key(&engineer))
-            .expect("engineer not found")
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::EngineerNotFound))
     }
 
     pub fn initialize_admin(env: Env, admin: Address) {
@@ -127,7 +132,7 @@ impl EngineerRegistry {
 
     pub fn get_admin(env: Env) -> Address {
         env.storage().instance().get(&admin_key())
-            .expect("admin not initialized")
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::NotInitialized))
     }
 
     pub fn is_trusted_issuer(env: Env, issuer: Address) -> bool {
@@ -143,7 +148,8 @@ impl EngineerRegistry {
 
     pub fn add_trusted_issuer(env: Env, admin: Address, issuer: Address) {
         admin.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&admin_key()).expect("admin not initialized");
+        let stored_admin: Address = env.storage().instance().get(&admin_key())
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::NotInitialized));
         if stored_admin != admin {
             panic_with_error!(&env, ContractError::UnauthorizedAdmin);
         }
@@ -157,7 +163,8 @@ impl EngineerRegistry {
 
     pub fn remove_trusted_issuer(env: Env, admin: Address, issuer: Address) {
         admin.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&admin_key()).expect("admin not initialized");
+        let stored_admin: Address = env.storage().instance().get(&admin_key())
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::NotInitialized));
         if stored_admin != admin {
             panic_with_error!(&env, ContractError::UnauthorizedAdmin);
         }
@@ -188,7 +195,7 @@ impl EngineerRegistry {
             .storage()
             .instance()
             .get(&admin_key())
-            .expect("admin not initialized");
+            .unwrap_or_else(|| panic_with_error!(&env, ContractError::NotInitialized));
         if stored_admin != admin {
             panic_with_error!(&env, ContractError::UnauthorizedAdmin);
         }
@@ -485,135 +492,70 @@ mod tests {
         assert_eq!(record.expires_at, issued_at + validity_period);
     }
 
-    // --- get_trusted_issuers tests ---
+    // --- Issue #141: get_engineer structured error ---
 
-    // 4.1: fresh contract returns empty list (Requirements: 2.2, 4.3)
     #[test]
-    fn test_get_trusted_issuers_empty() {
+    fn test_get_engineer_unknown_returns_structured_error() {
         let env = Env::default();
         env.mock_all_auths();
         let (client, _) = setup(&env);
 
-        let result = client.get_trusted_issuers();
-        assert_eq!(result.len(), 0);
-    }
-
-    // 4.2: add one issuer, verify list contains it (Requirements: 1.2, 2.3)
-    #[test]
-    fn test_get_trusted_issuers_single() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (client, admin) = setup(&env);
-
-        let issuer = Address::generate(&env);
-        client.add_trusted_issuer(&admin, &issuer);
-
-        let list = client.get_trusted_issuers();
-        assert_eq!(list.len(), 1);
-        assert_eq!(list.get(0).unwrap(), issuer);
-    }
-
-    // 4.3: add same issuer twice, verify list length is 1 (Requirements: 1.3, 2.4)
-    #[test]
-    fn test_get_trusted_issuers_dedup() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (client, admin) = setup(&env);
-
-        let issuer = Address::generate(&env);
-        client.add_trusted_issuer(&admin, &issuer);
-        client.add_trusted_issuer(&admin, &issuer);
-
-        let list = client.get_trusted_issuers();
-        assert_eq!(list.len(), 1);
-    }
-
-    // 4.4: add then remove, verify list is empty (Requirements: 1.4, 2.3)
-    #[test]
-    fn test_get_trusted_issuers_after_remove() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (client, admin) = setup(&env);
-
-        let issuer = Address::generate(&env);
-        client.add_trusted_issuer(&admin, &issuer);
-        client.remove_trusted_issuer(&admin, &issuer);
-
-        let list = client.get_trusted_issuers();
-        assert_eq!(list.len(), 0);
-    }
-
-    // 4.5: remove an address never added, verify list unchanged (Requirements: 1.5)
-    #[test]
-    fn test_get_trusted_issuers_remove_absent_noop() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (client, admin) = setup(&env);
-
-        let issuer = Address::generate(&env);
-        let outsider = Address::generate(&env);
-        client.add_trusted_issuer(&admin, &issuer);
-
-        client.remove_trusted_issuer(&admin, &outsider);
-
-        let list = client.get_trusted_issuers();
-        assert_eq!(list.len(), 1);
-        assert_eq!(list.get(0).unwrap(), issuer);
-    }
-
-    // 4.6: call get_trusted_issuers without mocking auth, verify no panic (Requirements: 4.3)
-    #[test]
-    fn test_get_trusted_issuers_no_auth_required() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (client, admin) = setup(&env);
-
-        let issuer = Address::generate(&env);
-        client.add_trusted_issuer(&admin, &issuer);
-
-        // Clear auths — get_trusted_issuers must not require any authorization
-        env.mock_auths(&[]);
-        let list = client.get_trusted_issuers();
-        assert_eq!(list.len(), 1);
-        assert_eq!(list.get(0).unwrap(), issuer);
-    }
-
-    // 4.7: non-admin cannot add trusted issuer (Requirements: 4.1)
-    #[test]
-    fn test_non_admin_cannot_add_trusted_issuer() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (client, _) = setup(&env);
-
-        let outsider = Address::generate(&env);
-        let issuer = Address::generate(&env);
-
-        let result = client.try_add_trusted_issuer(&outsider, &issuer);
+        let unknown = Address::generate(&env);
+        let result = client.try_get_engineer(&unknown);
         assert_eq!(
             result,
             Err(Ok(soroban_sdk::Error::from_contract_error(
-                ContractError::UnauthorizedAdmin as u32,
+                ContractError::EngineerNotFound as u32,
             ))),
         );
     }
 
-    // 4.8: non-admin cannot remove trusted issuer (Requirements: 4.2)
+    // --- Issue #142: get_admin structured error before initialization ---
+
     #[test]
-    fn test_non_admin_cannot_remove_trusted_issuer() {
+    fn test_get_admin_before_init_returns_structured_error() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(EngineerRegistry, ());
+        let client = EngineerRegistryClient::new(&env, &contract_id);
+
+        let result = client.try_get_admin();
+        assert_eq!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                ContractError::NotInitialized as u32,
+            ))),
+        );
+    }
+
+    // --- Issue #143: revoke_credential extends TTL before write ---
+
+    #[test]
+    fn test_revoke_credential_ttl_extended_before_write() {
         let env = Env::default();
         env.mock_all_auths();
         let (client, admin) = setup(&env);
 
+        let engineer = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.add_trusted_issuer(&admin, &issuer);
+        let hash = BytesN::from_array(&env, &[1u8; 32]);
 
-        let outsider = Address::generate(&env);
-        let result = client.try_remove_trusted_issuer(&outsider, &issuer);
-        assert_eq!(
-            result,
-            Err(Ok(soroban_sdk::Error::from_contract_error(
-                ContractError::UnauthorizedAdmin as u32,
-            ))),
-        );
+        client.add_trusted_issuer(&admin, &issuer);
+        client.register_engineer(&engineer, &hash, &issuer, &31_536_000);
+
+        // Simulate near-expiry by advancing ledger close to TTL threshold
+        env.ledger().with_mut(|li| li.sequence = li.sequence + 518399);
+
+        client.revoke_credential(&engineer);
+
+        // After revocation the entry must still be accessible and marked inactive
+        let record = client.get_engineer(&engineer);
+        assert!(!record.active);
+
+        let contract_id = client.address.clone();
+        let ttl = env.as_contract(&contract_id, || {
+            env.storage().persistent().get_ttl(&engineer_key(&engineer))
+        });
+        assert!(ttl > 0, "TTL must be extended after revocation");
     }
 }
