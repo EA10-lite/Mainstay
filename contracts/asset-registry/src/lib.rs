@@ -85,6 +85,18 @@ pub struct AssetRegistry;
 
 #[contractimpl]
 impl AssetRegistry {
+    /// Register a new asset with the given type, metadata, and owner.
+    ///
+    /// # Arguments
+    /// * `asset_type` - A Symbol representing the type of asset (e.g., "GENSET", "TURBINE")
+    /// * `metadata` - String containing asset metadata and specifications
+    /// * `owner` - Address of the asset owner
+    ///
+    /// # Returns
+    /// The unique asset ID assigned to the registered asset
+    ///
+    /// # Panics
+    /// - [`ContractError::DuplicateAsset`] if the same owner tries to register identical metadata
     pub fn register_asset(env: Env, asset_type: Symbol, metadata: String, owner: Address) -> u64 {
         owner.require_auth();
 
@@ -122,6 +134,16 @@ impl AssetRegistry {
         id
     }
 
+    /// Retrieve an asset by its unique ID.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset to retrieve
+    ///
+    /// # Returns
+    /// The complete Asset struct containing all asset information
+    ///
+    /// # Panics
+    /// - [`ContractError::AssetNotFound`] if no asset exists with the given ID
     pub fn get_asset(env: Env, asset_id: u64) -> Asset {
         env.storage()
             .persistent()
@@ -142,11 +164,22 @@ impl AssetRegistry {
             .unwrap_or_else(|| Vec::new(&env))
     }
 
+    /// Get the total count of registered assets in the system.
+    ///
+    /// # Returns
+    /// The total number of assets that have been registered
     pub fn asset_count(env: Env) -> u64 {
         env.storage().instance().get(&ASSET_COUNT).unwrap_or(0)
     }
 
-    /// Initialize the admin address (call once on deploy)
+    /// Initialize the admin address for the contract.
+    /// This function should be called once immediately after deployment.
+    ///
+    /// # Arguments
+    /// * `admin` - The address that will have administrative privileges
+    ///
+    /// # Panics
+    /// - [`ContractError::AdminAlreadyInitialized`] if admin has already been initialized
     pub fn initialize_admin(env: Env, admin: Address) {
         admin.require_auth();
         if env.storage().instance().has(&ADMIN_KEY) {
@@ -155,13 +188,27 @@ impl AssetRegistry {
         env.storage().instance().set(&ADMIN_KEY, &admin);
     }
 
-    /// Get the current admin address
+    /// Get the current admin address of the contract.
+    ///
+    /// # Returns
+    /// The address of the current administrator
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if the admin has not been initialized
     pub fn get_admin(env: Env) -> Address {
         env.storage().instance().get(&ADMIN_KEY)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::NotInitialized))
     }
 
-    /// Admin-only: Deregister (remove) an asset
+    /// Admin-only function to deregister (remove) an asset from the registry.
+    /// This permanently removes the asset and all associated data.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset to deregister
+    ///
+    /// # Panics
+    /// - [`ContractError::AssetNotFound`] if no asset exists with the given ID
+    /// - [`ContractError::UnauthorizedAdmin`] if caller is not the admin
     pub fn deregister_asset(env: Env, asset_id: u64) {
         let admin = Self::get_admin(env.clone());
         admin.require_auth();
@@ -187,8 +234,19 @@ impl AssetRegistry {
         );
     }
 
-    /// Owner-only: update the metadata of an existing asset (e.g. after refurbishment).
-    /// Removes the old deduplication key and registers the new one.
+    /// Owner-only function to update the metadata of an existing asset.
+    /// This is typically used after refurbishment or specification changes.
+    /// Removes the old deduplication key and registers a new one.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset to update
+    /// * `owner` - The current owner of the asset (must match stored owner)
+    /// * `new_metadata` - The new metadata string to assign to the asset
+    ///
+    /// # Panics
+    /// - [`ContractError::AssetNotFound`] if no asset exists with the given ID
+    /// - [`ContractError::UnauthorizedOwner`] if caller is not the asset owner
+    /// - [`ContractError::DuplicateAsset`] if new metadata already exists for this owner
     pub fn update_asset_metadata(env: Env, asset_id: u64, owner: Address, new_metadata: String) {
         owner.require_auth();
 
@@ -233,6 +291,17 @@ impl AssetRegistry {
         );
     }
 
+    /// Transfer ownership of an asset from the current owner to a new owner.
+    /// Only the current owner can initiate the transfer.
+    ///
+    /// # Arguments
+    /// * `asset_id` - The unique identifier of the asset to transfer
+    /// * `current_owner` - The current owner of the asset (must match stored owner)
+    /// * `new_owner` - The address of the new asset owner
+    ///
+    /// # Panics
+    /// - [`ContractError::AssetNotFound`] if no asset exists with the given ID
+    /// - [`ContractError::UnauthorizedOwner`] if caller is not the current owner
     pub fn transfer_asset(env: Env, asset_id: u64, current_owner: Address, new_owner: Address) {
         current_owner.require_auth();
 
@@ -269,7 +338,16 @@ impl AssetRegistry {
         );
     }
 
-    /// Admin-only: upgrade the contract WASM to a new hash.
+    /// Admin-only function to upgrade the contract WASM to a new hash.
+    /// This allows for contract updates while maintaining state.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address that must match the stored admin
+    /// * `new_wasm_hash` - The hash of the new WASM code to deploy
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if the admin has not been initialized
+    /// - [`ContractError::UnauthorizedAdmin`] if caller is not the admin
     pub fn upgrade(env: Env, admin: Address, _new_wasm_hash: BytesN<32>) {
         admin.require_auth();
 

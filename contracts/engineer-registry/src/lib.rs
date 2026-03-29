@@ -50,6 +50,18 @@ pub struct EngineerRegistry;
 
 #[contractimpl]
 impl EngineerRegistry {
+    /// Register a new engineer with their credential information.
+    /// Only trusted issuers can register engineers.
+    ///
+    /// # Arguments
+    /// * `engineer` - The address of the engineer being registered
+    /// * `credential_hash` - Hash of the engineer's credentials/certifications
+    /// * `issuer` - The trusted issuer address registering the engineer
+    /// * `validity_period` - Duration in seconds for which the credentials are valid
+    ///
+    /// # Panics
+    /// - [`ContractError::UntrustedIssuer`] if the issuer is not in the trusted list
+    /// - [`ContractError::InvalidCredentialHash`] if credential hash is all zeros
     pub fn register_engineer(
         env: Env,
         engineer: Address,
@@ -101,6 +113,14 @@ impl EngineerRegistry {
         );
     }
 
+    /// Verify if an engineer has valid, active credentials.
+    /// Checks both active status and expiration time.
+    ///
+    /// # Arguments
+    /// * `engineer` - The address of the engineer to verify
+    ///
+    /// # Returns
+    /// `true` if the engineer has valid, non-expired credentials; `false` otherwise
     pub fn verify_engineer(env: Env, engineer: Address) -> bool {
         env.storage()
             .persistent()
@@ -109,6 +129,15 @@ impl EngineerRegistry {
             .unwrap_or(false)
     }
 
+    /// Revoke an engineer's credentials, making them inactive.
+    /// Only the original issuer can revoke credentials.
+    ///
+    /// # Arguments
+    /// * `engineer` - The address of the engineer whose credentials should be revoked
+    ///
+    /// # Panics
+    /// - [`ContractError::EngineerNotFound`] if no engineer exists with the given address
+    /// - [`ContractError::CredentialAlreadyRevoked`] if the credentials are already revoked
     pub fn revoke_credential(env: Env, engineer: Address) {
         let mut record: Engineer = env
             .storage()
@@ -133,6 +162,16 @@ impl EngineerRegistry {
         );
     }
 
+    /// Retrieve complete engineer information by address.
+    ///
+    /// # Arguments
+    /// * `engineer` - The address of the engineer to retrieve
+    ///
+    /// # Returns
+    /// The complete Engineer struct with all credential information
+    ///
+    /// # Panics
+    /// - [`ContractError::EngineerNotFound`] if no engineer exists with the given address
     pub fn get_engineer(env: Env, engineer: Address) -> Engineer {
         env.storage()
             .persistent()
@@ -140,6 +179,14 @@ impl EngineerRegistry {
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::EngineerNotFound))
     }
 
+    /// Initialize the admin address for the contract.
+    /// This function should be called once immediately after deployment.
+    ///
+    /// # Arguments
+    /// * `admin` - The address that will have administrative privileges
+    ///
+    /// # Panics
+    /// - [`ContractError::AdminAlreadyInitialized`] if admin has already been initialized
     pub fn initialize_admin(env: Env, admin: Address) {
         admin.require_auth();
         if env.storage().instance().has(&admin_key()) {
@@ -148,15 +195,33 @@ impl EngineerRegistry {
         env.storage().instance().set(&admin_key(), &admin);
     }
 
+    /// Get the current admin address of the contract.
+    ///
+    /// # Returns
+    /// The address of the current administrator
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if the admin has not been initialized
     pub fn get_admin(env: Env) -> Address {
         env.storage().instance().get(&admin_key())
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::NotInitialized))
     }
 
+    /// Check if an issuer is in the trusted issuers list.
+    ///
+    /// # Arguments
+    /// * `issuer` - The address of the issuer to check
+    ///
+    /// # Returns
+    /// `true` if the issuer is trusted; `false` otherwise
     pub fn is_trusted_issuer(env: Env, issuer: Address) -> bool {
         env.storage().instance().has(&trusted_key(&issuer))
     }
 
+    /// Get the list of all trusted issuer addresses.
+    ///
+    /// # Returns
+    /// A Vec containing all trusted issuer addresses
     pub fn get_trusted_issuers(env: Env) -> Vec<Address> {
         env.storage()
             .instance()
@@ -164,6 +229,16 @@ impl EngineerRegistry {
             .unwrap_or(Vec::new(&env))
     }
 
+    /// Admin-only function to add a new trusted issuer.
+    /// Only admins can modify the trusted issuers list.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address that must match the stored admin
+    /// * `issuer` - The address of the issuer to add as trusted
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if the admin has not been initialized
+    /// - [`ContractError::UnauthorizedAdmin`] if caller is not the admin
     pub fn add_trusted_issuer(env: Env, admin: Address, issuer: Address) {
         admin.require_auth();
         let stored_admin: Address = env.storage().instance().get(&admin_key())
@@ -184,6 +259,16 @@ impl EngineerRegistry {
         );
     }
 
+    /// Admin-only function to remove a trusted issuer.
+    /// Only admins can modify the trusted issuers list.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address that must match the stored admin
+    /// * `issuer` - The address of the issuer to remove from trusted list
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if the admin has not been initialized
+    /// - [`ContractError::UnauthorizedAdmin`] if caller is not the admin
     pub fn remove_trusted_issuer(env: Env, admin: Address, issuer: Address) {
         admin.require_auth();
         let stored_admin: Address = env.storage().instance().get(&admin_key())
@@ -202,7 +287,13 @@ impl EngineerRegistry {
         env.storage().instance().set(&issuer_list_key(), &new_list);
     }
 
-    /// Returns all engineer addresses credentialed by the given issuer.
+    /// Get all engineer addresses that have been credentialed by a specific issuer.
+    ///
+    /// # Arguments
+    /// * `issuer` - The address of the issuer to query
+    ///
+    /// # Returns
+    /// A Vec containing all engineer addresses credentialed by the given issuer
     pub fn get_engineers_by_issuer(env: Env, issuer: Address) -> Vec<Address> {
         env.storage()
             .persistent()
@@ -210,7 +301,16 @@ impl EngineerRegistry {
             .unwrap_or(Vec::new(&env))
     }
 
-    /// Admin-only: upgrade the contract WASM to a new hash.
+    /// Admin-only function to upgrade the contract WASM to a new hash.
+    /// This allows for contract updates while maintaining state.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address that must match the stored admin
+    /// * `new_wasm_hash` - The hash of the new WASM code to deploy
+    ///
+    /// # Panics
+    /// - [`ContractError::NotInitialized`] if the admin has not been initialized
+    /// - [`ContractError::UnauthorizedAdmin`] if caller is not the admin
     pub fn upgrade(env: Env, admin: Address, _new_wasm_hash: BytesN<32>) {
         admin.require_auth();
 
