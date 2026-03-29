@@ -10,6 +10,8 @@ pub enum ContractError {
     EngineerNotFound = 3,
     NotInitialized = 4,
     AdminAlreadyInitialized = 5,
+    UntrustedIssuer = 6,
+    InvalidCredentialHash = 7,
 }
 
 #[contracttype]
@@ -57,12 +59,11 @@ impl EngineerRegistry {
     ) {
         issuer.require_auth();
         if !env.storage().instance().has(&trusted_key(&issuer)) {
-            panic!("issuer is not trusted");
+            panic_with_error!(&env, ContractError::UntrustedIssuer);
         }
-        assert!(
-            credential_hash != BytesN::from_array(&env, &[0u8; 32]),
-            "credential hash cannot be zero"
-        );
+        if credential_hash == BytesN::from_array(&env, &[0u8; 32]) {
+            panic_with_error!(&env, ContractError::InvalidCredentialHash);
+        }
         let now = env.ledger().timestamp();
         let record = Engineer {
             address: engineer.clone(),
@@ -75,6 +76,9 @@ impl EngineerRegistry {
         env.storage()
             .persistent()
             .set(&engineer_key(&engineer), &record);
+        env.storage()
+            .persistent()
+            .extend_ttl(&engineer_key(&engineer), 518400, 518400);
 
         // Track issuer → engineers mapping
         let mut list: Vec<Address> = env
@@ -325,7 +329,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "credential hash cannot be zero")]
     fn test_register_zero_hash_rejected() {
         let env = Env::default();
         env.mock_all_auths();
@@ -336,7 +339,13 @@ mod tests {
         let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
 
         client.add_trusted_issuer(&admin, &issuer);
-        client.register_engineer(&engineer, &zero_hash, &issuer, &31_536_000);
+        let result = client.try_register_engineer(&engineer, &zero_hash, &issuer, &31_536_000);
+        assert_eq!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                ContractError::InvalidCredentialHash as u32,
+            ))),
+        );
     }
 
     #[test]
@@ -506,8 +515,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "issuer is not trusted")]
-    fn test_register_engineer_untrusted_issuer_panics() {
+    fn test_register_engineer_untrusted_issuer_returns_error() {
         let env = Env::default();
         env.mock_all_auths();
         let (client, _) = setup(&env);
@@ -516,8 +524,13 @@ mod tests {
         let untrusted_issuer = Address::generate(&env);
         let hash = BytesN::from_array(&env, &[1u8; 32]);
 
-        // untrusted_issuer was never added via add_trusted_issuer — must panic
-        client.register_engineer(&engineer, &hash, &untrusted_issuer, &31_536_000);
+        let result = client.try_register_engineer(&engineer, &hash, &untrusted_issuer, &31_536_000);
+        assert_eq!(
+            result,
+            Err(Ok(soroban_sdk::Error::from_contract_error(
+                ContractError::UntrustedIssuer as u32,
+            ))),
+        );
     }
 
     #[test]
