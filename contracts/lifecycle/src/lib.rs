@@ -579,9 +579,10 @@ impl Lifecycle {
                 timestamp,
             });
             score_history.push_back(ScoreEntry { timestamp, score });
-
-            engineer_history_add(&env, &engineer, asset_id);
         }
+
+        // Add to engineer history only once per asset per batch
+        engineer_history_add(&env, &engineer, asset_id);
 
         env.storage().persistent().set(&history_key(asset_id), &history);
         env.storage().persistent().extend_ttl(&history_key(asset_id), 518400, 518400);
@@ -766,6 +767,14 @@ impl Lifecycle {
             asset_registry::AssetRegistryClient::new(&env, &asset_registry);
         asset_registry_client.get_asset(&asset_id);
 
+        Self::get_collateral_score_unchecked(&env, asset_id)
+    }
+
+    /// Get the collateral score for an asset without verifying asset existence.
+    /// 
+    /// This is an internal optimization to avoid cross-contract calls when the caller
+    /// already knows the asset exists. Use the public `get_collateral_score` for safety.
+    fn get_collateral_score_unchecked(env: &Env, asset_id: u64) -> u32 {
         env.storage()
             .persistent()
             .get(&score_key(asset_id))
@@ -845,7 +854,9 @@ impl Lifecycle {
             .instance()
             .get(&CONFIG)
             .unwrap_or_else(|| panic_with_error!(&env, ContractError::NotInitialized));
-        Self::get_collateral_score(env, asset_id) >= config.eligibility_threshold
+        
+        // Use unchecked version since we already verified asset exists
+        Self::get_collateral_score_unchecked(&env, asset_id) >= config.eligibility_threshold
     }
 
     /// Get the address of the asset registry contract.
@@ -1564,6 +1575,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_is_collateral_eligible_matches_score_check() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, admin) = setup(&env, 50);
+        let engineer = Address::generate(&env);
+        let asset_id = register_test_asset(&asset_registry_client, &admin);
+        register_test_engineer(&engineer_registry_client, &admin, &engineer);
+
+        // Submit maintenance to get a score above threshold
+        client.submit_maintenance(&asset_id, &String::from_str(&env, "routine"), &String::from_str(&env, "test"), &engineer);
+        
+        let score = client.get_collateral_score(&asset_id);
+        let is_eligible = client.is_collateral_eligible(&asset_id);
+        
+        // Verify eligibility matches score >= threshold comparison
+        assert_eq!(is_eligible, score >= 50);
+    }
+
     // --- Upgrade tests ---
 
     #[test]
@@ -1847,6 +1878,38 @@ mod tests {
         // OIL_CHG=2, INSPECT=2, ENGINE=10 => 14
         assert_eq!(client.get_collateral_score(&asset_id), 14);
         assert_eq!(client.get_maintenance_history(&asset_id).len(), 3);
+    }
+
+    #[test]
+    fn test_batch_submit_no_duplicate_engineer_history() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, asset_registry_client, engineer_registry_client, _) = setup(&env, 0);
+        let asset_id = register_asset(&env, &asset_registry_client);
+        let engineer = register_engineer(&env, &engineer_registry_client);
+
+        // Submit multiple records for the same asset in one batch
+        let mut records = Vec::new(&env);
+        records.push_back(BatchRecord {
+            task_type: symbol_short!("OIL_CHG"),
+            notes: String::from_str(&env, "Oil change 1"),
+        });
+        records.push_back(BatchRecord {
+            task_type: symbol_short!("OIL_CHG"),
+            notes: String::from_str(&env, "Oil change 2"),
+        });
+        records.push_back(BatchRecord {
+            task_type: symbol_short!("INSPECT"),
+            notes: String::from_str(&env, "Inspection"),
+        });
+
+        client.batch_submit_maintenance(&asset_id, &records, &engineer);
+
+        // Verify engineer history contains asset_id only once
+        let history = client.get_engineer_history(&engineer);
+        let asset_count = history.iter().filter(|&id| *id == asset_id).count();
+        assert_eq!(asset_count, 1);
     }
 
     #[test]
