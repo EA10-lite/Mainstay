@@ -1,5 +1,8 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, contracterror, panic_with_error, symbol_short, Address, BytesN, Env, Symbol, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address,
+    BytesN, Env, Symbol, Vec,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -591,7 +594,12 @@ mod tests {
         let new_wasm_hash = BytesN::from_array(&env, &[0xabu8; 32]);
         // In test env the WASM hash won't exist, so we just verify auth passes (no UnauthorizedAdmin error)
         let result = client.try_upgrade(&admin, &new_wasm_hash);
-        assert!(result != Err(Ok(soroban_sdk::Error::from_contract_error(ContractError::UnauthorizedAdmin as u32))));
+        assert!(
+            result
+                != Err(Ok(soroban_sdk::Error::from_contract_error(
+                    ContractError::UnauthorizedAdmin as u32
+                )))
+        );
     }
 
     #[test]
@@ -681,8 +689,14 @@ mod tests {
 
         assert_eq!(client.get_engineers_by_issuer(&issuer_a).len(), 1);
         assert_eq!(client.get_engineers_by_issuer(&issuer_b).len(), 1);
-        assert_eq!(client.get_engineers_by_issuer(&issuer_a).get(0).unwrap(), e1);
-        assert_eq!(client.get_engineers_by_issuer(&issuer_b).get(0).unwrap(), e2);
+        assert_eq!(
+            client.get_engineers_by_issuer(&issuer_a).get(0).unwrap(),
+            e1
+        );
+        assert_eq!(
+            client.get_engineers_by_issuer(&issuer_b).get(0).unwrap(),
+            e2
+        );
     }
 
     #[test]

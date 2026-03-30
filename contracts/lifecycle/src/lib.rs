@@ -1611,7 +1611,12 @@ mod tests {
 
         // In test env WASM won't exist; verify no UnauthorizedAdmin error is returned
         let result = client.try_upgrade(&admin, &new_wasm_hash);
-        assert!(result != Err(Ok(soroban_sdk::Error::from_contract_error(ContractError::UnauthorizedAdmin as u32))));
+        assert!(
+            result
+                != Err(Ok(soroban_sdk::Error::from_contract_error(
+                    ContractError::UnauthorizedAdmin as u32
+                )))
+        );
     }
 
     #[test]
@@ -1709,9 +1714,9 @@ mod tests {
         );
 
         let history = client.get_score_history(&asset_id);
-        assert_eq!(history.get(0).unwrap().score, 2);   // 0 + 2
-        assert_eq!(history.get(1).unwrap().score, 12);  // 2 + 10
-        assert_eq!(history.get(2).unwrap().score, 17);  // 12 + 5
+        assert_eq!(history.get(0).unwrap().score, 2); // 0 + 2
+        assert_eq!(history.get(1).unwrap().score, 12); // 2 + 10
+        assert_eq!(history.get(2).unwrap().score, 17); // 12 + 5
     }
 
     #[test]
@@ -1731,7 +1736,8 @@ mod tests {
             &engineer,
         );
 
-        env.ledger().with_mut(|li| li.timestamp = li.timestamp + 1000);
+        env.ledger()
+            .with_mut(|li| li.timestamp = li.timestamp + 1000);
         let t1 = env.ledger().timestamp();
         client.submit_maintenance(
             &asset_id,
